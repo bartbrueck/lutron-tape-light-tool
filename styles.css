@@ -301,6 +301,10 @@ h3 {
   min-height: 220px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  user-select: none;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
@@ -309,6 +313,10 @@ h3 {
     linear-gradient(180deg, rgba(18, 124, 114, 0.04) 1px, transparent 1px),
     #f9fbf8;
   background-size: 28px 28px;
+}
+
+.system-map.is-dragging {
+  cursor: grabbing;
 }
 
 .system-map-empty {
@@ -328,8 +336,8 @@ h3 {
 
 .system-map-svg {
   display: block;
-  width: auto;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   height: auto;
 }
@@ -1448,9 +1456,9 @@ h3 {
 
   .system-map-svg {
     display: block;
-    width: auto;
+    width: var(--map-width);
     max-width: none;
-    min-width: 0;
+    min-width: var(--map-width);
   }
 
   .system-map-stack {

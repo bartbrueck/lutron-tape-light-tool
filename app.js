@@ -125,6 +125,8 @@
   let state = clone(simpleExample);
   let activePreset = "simple";
   const collapsedControllers = new Set();
+  let mapPan = null;
+  let suppressNextMapJump = false;
 
   const els = {
     projectName: document.querySelector("#projectName"),
@@ -923,7 +925,7 @@
     });
 
     return `
-      <svg class="system-map-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live system wiring map">
+      <svg class="system-map-svg ${complexMap ? "complex" : "simple"}" style="--map-width: ${width}px;" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live system wiring map">
         ${pieces.join("")}
       </svg>
     `;
@@ -1453,6 +1455,12 @@
   }
 
   function handleSystemMapJump(event) {
+    if (suppressNextMapJump) {
+      event.preventDefault();
+      suppressNextMapJump = false;
+      return;
+    }
+
     if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
 
     const trigger = event.target.closest("[data-jump]");
@@ -1464,6 +1472,49 @@
     event.preventDefault();
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     highlightTarget(target);
+  }
+
+  function handleSystemMapPointerDown(event) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (els.systemMap.scrollWidth <= els.systemMap.clientWidth) return;
+
+    mapPan = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: els.systemMap.scrollLeft,
+      moved: false
+    };
+
+    els.systemMap.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleSystemMapPointerMove(event) {
+    if (!mapPan || event.pointerId !== mapPan.id) return;
+
+    const deltaX = event.clientX - mapPan.startX;
+    const deltaY = event.clientY - mapPan.startY;
+    if (Math.abs(deltaX) <= 4 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+    mapPan.moved = true;
+    els.systemMap.classList.add("is-dragging");
+    els.systemMap.scrollLeft = mapPan.scrollLeft - deltaX;
+    event.preventDefault();
+  }
+
+  function handleSystemMapPointerEnd(event) {
+    if (!mapPan || event.pointerId !== mapPan.id) return;
+
+    if (mapPan.moved) {
+      suppressNextMapJump = true;
+      window.setTimeout(() => {
+        suppressNextMapJump = false;
+      }, 120);
+    }
+
+    els.systemMap.releasePointerCapture?.(event.pointerId);
+    els.systemMap.classList.remove("is-dragging");
+    mapPan = null;
   }
 
   function handleControllerDetailsToggle(event) {
@@ -1499,6 +1550,10 @@
   document.addEventListener("input", updateFromEvent);
   document.addEventListener("change", updateFromEvent);
   document.addEventListener("toggle", handleControllerDetailsToggle, true);
+  els.systemMap.addEventListener("pointerdown", handleSystemMapPointerDown);
+  els.systemMap.addEventListener("pointermove", handleSystemMapPointerMove);
+  els.systemMap.addEventListener("pointerup", handleSystemMapPointerEnd);
+  els.systemMap.addEventListener("pointercancel", handleSystemMapPointerEnd);
   els.systemMap.addEventListener("click", handleSystemMapJump);
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
   els.simpleExample.addEventListener("click", () => {
