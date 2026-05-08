@@ -34,7 +34,19 @@
           <button id="clearAll" type="button" class="secondary" aria-pressed="false">Start blank</button>
         </div>
 
-        <section class="setup-card" aria-labelledby="powerModeTitle">
+        <details class="system-map-card collapsible-card" open>
+          <summary class="card-summary">
+            <span class="summary-title">
+              <span class="section-kicker">System map</span>
+              <span id="systemMapTitle" class="summary-heading">Live wiring diagram</span>
+            </span>
+            <span class="summary-action" aria-hidden="true"></span>
+          </summary>
+
+          <div id="systemMap" class="system-map" aria-live="polite"></div>
+        </details>
+
+        <section id="powerFeedCard" class="setup-card" aria-labelledby="powerModeTitle">
           <div class="card-heading">
             <p class="section-kicker">Power feed</p>
             <h2 id="powerModeTitle">How does power get to the controllers?</h2>
