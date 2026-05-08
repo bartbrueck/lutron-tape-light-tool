@@ -43,7 +43,13 @@
             <span class="summary-action" aria-hidden="true"></span>
           </summary>
 
-          <div id="systemMap" class="system-map" aria-live="polite"></div>
+          <div class="system-map-shell">
+            <div id="systemMap" class="system-map" aria-live="polite"></div>
+            <div class="system-map-controls" aria-label="Move wiring diagram">
+              <button id="panMapLeft" type="button" class="map-pan-button" aria-label="Move diagram left">‹</button>
+              <button id="panMapRight" type="button" class="map-pan-button" aria-label="Move diagram right">›</button>
+            </div>
+          </div>
         </details>
 
         <section id="powerFeedCard" class="setup-card" aria-labelledby="powerModeTitle">
