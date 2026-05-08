@@ -114,6 +114,13 @@ h1 {
   letter-spacing: 0;
 }
 
+.tool-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
 h2 {
   margin-bottom: 0;
   font-size: 1.18rem;

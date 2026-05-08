@@ -1792,13 +1792,15 @@
     render();
   });
 
-  window.LutronInstallerTapeCheckV4 = {
+  const publicApi = {
     evaluate,
     simpleExample,
     workbookExample,
     tapeTypes,
     awgOhmsPerFt
   };
+  window.TRACETool = publicApi;
+  window.LutronInstallerTapeCheckV4 = publicApi;
 
   render();
 })();
