@@ -5,6 +5,8 @@
   const CONTROLLER_STANDBY_A = 0.01132;
   const RUN_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
   const MAX_RUNS = 12;
+  const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
+  const PROJECT_FILE_VERSION = 1;
 
   const tapeTypes = [
     {
@@ -132,6 +134,9 @@
     projectName: document.querySelector("#projectName"),
     sharedPowerFields: document.querySelector("#sharedPowerFields"),
     controllers: document.querySelector("#controllers"),
+    saveProject: document.querySelector("#saveProject"),
+    openProject: document.querySelector("#openProject"),
+    projectFile: document.querySelector("#projectFile"),
     simpleExample: document.querySelector("#simpleExample"),
     workbookExample: document.querySelector("#workbookExample"),
     clearAll: document.querySelector("#clearAll"),
@@ -140,13 +145,18 @@
     panMapRight: document.querySelector("#panMapRight"),
     overallStatus: document.querySelector("#overallStatus"),
     overallPill: document.querySelector("#overallPill"),
+    mobileOverallStatus: document.querySelector("#mobileOverallStatus"),
+    mobileOverallPill: document.querySelector("#mobileOverallPill"),
     summaryMetrics: document.querySelector("#summaryMetrics"),
+    mobileSummaryMetrics: document.querySelector("#mobileSummaryMetrics"),
     issueList: document.querySelector("#issueList"),
+    mobileIssueList: document.querySelector("#mobileIssueList"),
     statusStrip: document.querySelector("#statusStrip")
   };
 
   function blankRun() {
     return {
+      customName: "",
       distanceControllerToTapeStart: 0,
       distanceSplitToTapeStart: 0,
       wireSizeToTapeStart: 22,
@@ -327,9 +337,15 @@
       const activeRuns = controller.runs.slice(0, controller.runCount);
       const runs = activeRuns.map((run, runIndex) => {
         const tapeLength = Math.max(0, number(run.tapeLength));
+        const runLetter = RUN_NAMES[runIndex] || String(runIndex + 1);
+        const defaultRunName = `Run ${runLetter}`;
+        const customName = typeof run.customName === "string" ? run.customName : "";
         return {
           ...run,
-          runName: RUN_NAMES[runIndex] || String(runIndex + 1),
+          customName,
+          runLetter,
+          defaultRunName,
+          runName: customName.trim() || defaultRunName,
           tapeLength,
           tapeCurrent: controller.enabled ? currentForTapeLength(tapeLength, tape) : 0
         };
@@ -465,7 +481,7 @@
           issues.push(
             issue(
               "warn",
-              `Run ${run.runName} on Controller ${controller.controllerIndex + 1} is too long`,
+              `${run.runName} on Controller ${controller.controllerIndex + 1} is too long`,
               detail
             )
           );
@@ -475,7 +491,7 @@
           issues.push(
             issue(
               "fail",
-              `Run ${run.runName} may start too dim`,
+              `${run.runName} may start too dim`,
               `${pct(fadeAtTapeStartPct)} light loss before the tape starts. Shorten wire, use larger wire, or move the controller.`
             )
           );
@@ -483,7 +499,7 @@
           issues.push(
             issue(
               "warn",
-              `Run ${run.runName} may visibly start dimmer`,
+              `${run.runName} may visibly start dimmer`,
               `${pct(fadeAtTapeStartPct)} light loss before the tape starts.`
             )
           );
@@ -493,7 +509,7 @@
           issues.push(
             issue(
               "fail",
-              `Run ${run.runName} may look uneven`,
+              `${run.runName} may look uneven`,
               `${pct(visibleRunFadePct)} brightness difference from start to end.`
             )
           );
@@ -501,7 +517,7 @@
           issues.push(
             issue(
               "warn",
-              `Run ${run.runName} may look uneven`,
+              `${run.runName} may look uneven`,
               `${pct(visibleRunFadePct)} brightness difference from start to end.`
             )
           );
@@ -619,6 +635,11 @@
     })[char]);
   }
 
+  function shortMapLabel(value, maxLength = 18) {
+    const text = String(value || "");
+    return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+  }
+
   function runVisualLevel(run) {
     return worstLevel([run.startStatus.level, run.runStatus.level]);
   }
@@ -675,7 +696,7 @@
                             const runLevel = runVisualLevel(run);
                             return `
                               <div class="preview-stack-run ${runLevel}">
-                                <span>Run ${run.runName}</span>
+                                <span>${escapeHtml(run.runName)}</span>
                                 <strong>${ft(run.tapeLength)}</strong>
                                 ${run.feedBothEnds ? "<em>fed both ends</em>" : ""}
                               </div>
@@ -737,7 +758,7 @@
         const runY = controllerY + 32 - localHeight / 2 + runIndex * runGap;
         const runLevel = runVisualLevel(run);
         pieces.push(svgLine(controllerX + 126, controllerY + 32, runStartX, runY, runLevel));
-        pieces.push(svgBox(runStartX, runY - 25, 122, 50, `Run ${run.runName}`, `${ft(run.tapeLength)}`, runLevel));
+        pieces.push(svgBox(runStartX, runY - 25, 122, 50, shortMapLabel(run.runName), `${ft(run.tapeLength)}`, runLevel));
         const barX = runStartX + 150;
         const barWidth = Math.min(170, Math.max(54, 42 + run.tapeLength * 3));
         pieces.push(`<line class="preview-tape ${runLevel}" x1="${barX}" y1="${runY}" x2="${barX + barWidth}" y2="${runY}"></line>`);
@@ -781,7 +802,7 @@
   }
 
   function systemMapTape(x, y, run, level, jump) {
-    const tapeWidth = Math.min(178, Math.max(48, 36 + run.tapeLength * 3.2));
+    const tapeWidth = 104;
     const bothEnds = run.feedBothEnds
       ? `
         <circle class="system-map-tape-end ${level}" cx="${x}" cy="${y}" r="5"></circle>
@@ -816,7 +837,7 @@
   }
 
   function runJump(controller, run) {
-    return `#controller-${controller.controllerIndex + 1}-run-${run.runName}`;
+    return `#controller-${controller.controllerIndex + 1}-run-${run.runLetter}`;
   }
 
   function renderSystemMapSvg(result, activeControllers) {
@@ -849,7 +870,7 @@
     const controllerX = complexMap ? 570 : 410;
     const tapeSplitX = complexMap ? 850 : 610;
     const runX = complexMap ? 1120 : 690;
-    const tapeX = complexMap ? 1300 : 840;
+    const runWidth = 112;
     const pieces = [
       systemMapNode(powerX, powerY, 118, 64, "Power Box", "LU-PH3", result.level === "fail" ? "fail" : "neutral", "#powerFeedCard")
     ];
@@ -921,8 +942,8 @@
         const runSub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
 
         pieces.push(systemMapWire(runSourceX, runSourceY, runX, runY, wireTag(run.runDistance, wireSize), runLevel, jump));
-        pieces.push(systemMapNode(runX, runY - 30, 112, 60, `Run ${run.runName}`, runSub, runLevel, jump, "run"));
-        pieces.push(systemMapTape(tapeX, runY, run, runLevel, jump));
+        pieces.push(systemMapNode(runX, runY - 30, 112, 60, shortMapLabel(run.runName), runSub, runLevel, jump, "run"));
+        pieces.push(systemMapTape(runX + runWidth, runY, run, runLevel, jump));
       });
     });
 
@@ -995,7 +1016,7 @@
         const runLevel = runVisualLevel(run);
         const sub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
         pieces.push(mapStackWire(wireTag(run.runDistance, run.wireSizeToTapeStart), runLevel, runJump(controller, run)));
-        pieces.push(mapStackItem(`Run ${run.runName}`, sub, runLevel, runJump(controller, run), run.feedBothEnds ? "both-ends" : ""));
+        pieces.push(mapStackItem(run.runName, sub, runLevel, runJump(controller, run), run.feedBothEnds ? "both-ends" : ""));
       });
     });
 
@@ -1166,11 +1187,17 @@
       : `One-end feed limit: ${ft(FULL_REEL_FT)}.`;
 
     return `
-      <section id="controller-${controllerIndex + 1}-run-${run.runName}" class="run-card">
+      <section id="controller-${controllerIndex + 1}-run-${run.runLetter}" class="run-card">
         <div class="run-card-top">
-          <div>
-            <p class="section-kicker">Run ${run.runName}</p>
-            <h3>Run ${run.runName}</h3>
+          <div class="run-title-block">
+            <p class="section-kicker">${escapeHtml(run.defaultRunName)}</p>
+            <h3>${escapeHtml(run.runName)}</h3>
+            <label class="run-name-field">
+              <span>Run name (optional)</span>
+              <input data-path="controllers.${controllerIndex}.runs.${runIndex}.customName" type="text" maxlength="64" value="${escapeHtml(
+      run.customName
+    )}" placeholder="Under Cabinet">
+            </label>
           </div>
           <label class="switch compact">
             <input data-path="controllers.${controllerIndex}.runs.${runIndex}.feedBothEnds" type="checkbox" ${
@@ -1182,7 +1209,7 @@
         <div class="wire-map run">
           <div class="map-node">
             <span>${fromNode}</span>
-            <strong>To Run ${run.runName}</strong>
+            <strong>To ${escapeHtml(run.runName)}</strong>
           </div>
           <label class="map-field">
             <span>${distanceLabel}</span>
@@ -1265,15 +1292,14 @@
 
           <div class="extra-row">
             <label class="map-field">
-              <span>Other short tape on this controller</span>
+              <span>Extra short tape on this controller, load only</span>
               <div class="input-with-unit">
                 <input data-path="controllers.${index}.extraShortTapeLength" type="number" min="0" max="500" step="0.1" value="${controller.extraShortTapeLength}">
                 <span>ft</span>
               </div>
+              <small class="field-help">Use for short nearby tape runs you do not need to voltage-drop check. This adds load, but does not check brightness drop on those pieces.</small>
             </label>
             ${resultChip("Total tape", ft(controller.totalTapeLength))}
-            ${resultChip("Worst start light loss", pct(controller.worstStartFade))}
-            ${resultChip("Worst start-to-end difference", pct(controller.worstRunFade))}
           </div>
         </div>
       `
@@ -1342,10 +1368,13 @@
     renderSystemMap(result);
 
     els.overallStatus.textContent = result.overall;
-    els.overallPill.outerHTML = `<span id="overallPill" class="pill ${result.level}">${result.overall}</span>`;
-    els.overallPill = document.querySelector("#overallPill");
+    els.overallPill.textContent = result.overall;
+    els.overallPill.className = `pill ${result.level}`;
+    els.mobileOverallStatus.textContent = result.overall;
+    els.mobileOverallPill.textContent = { ok: "Good", warn: "Review", fail: "Fix", neutral: "Ready" }[result.level] || result.overall;
+    els.mobileOverallPill.className = `pill ${result.level}`;
 
-    els.summaryMetrics.innerHTML = [
+    const metricsHtml = [
       ["Power box load", watts(result.powerW)],
       ["Total current", amps(result.totalCurrent)],
       ["Total tape", ft(result.totalTapeLength)],
@@ -1356,9 +1385,19 @@
       .map(([label, value]) => `<div class="metric-row"><span>${label}</span><strong>${value}</strong></div>`)
       .join("");
 
-    els.issueList.innerHTML = `<div class="issue-list">${result.issues
-      .map((item) => `<div class="issue ${item.level}"><strong>${item.title}</strong><span>${item.detail}</span></div>`)
+    const issuesHtml = `<div class="issue-list">${result.issues
+      .map(
+        (item) =>
+          `<div class="issue ${item.level}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(
+            item.detail
+          )}</span></div>`
+      )
       .join("")}</div>`;
+
+    els.summaryMetrics.innerHTML = metricsHtml;
+    els.mobileSummaryMetrics.innerHTML = metricsHtml;
+    els.issueList.innerHTML = issuesHtml;
+    els.mobileIssueList.innerHTML = issuesHtml;
   }
 
   function refreshLiveResults() {
@@ -1425,6 +1464,8 @@
       value = target.value;
     } else if (target.tagName === "SELECT") {
       value = /^\d+$/.test(target.value) ? Number(target.value) : target.value;
+    } else if (target.type === "text") {
+      value = target.value;
     } else {
       value = number(target.value);
     }
@@ -1445,7 +1486,7 @@
       }
     }
     normalizeState(state);
-    if (event.type === "input" && target.type === "number") {
+    if (event.type === "input" && (target.type === "number" || target.type === "text")) {
       refreshLiveResults();
       return;
     }
@@ -1627,6 +1668,95 @@
     return blank;
   }
 
+  function slugifyFileName(value) {
+    const cleaned = String(value || "tape-light-project")
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    return cleaned || "tape-light-project";
+  }
+
+  function hydrateRun(run) {
+    return {
+      ...blankRun(),
+      ...(run && typeof run === "object" ? run : {})
+    };
+  }
+
+  function hydrateController(controller) {
+    const source = controller && typeof controller === "object" ? controller : {};
+    const hydrated = {
+      ...blankController(),
+      ...source
+    };
+    hydrated.runCount = clampRunCount(hydrated.runCount);
+    hydrated.runs = Array.isArray(source.runs) ? source.runs.map(hydrateRun) : [blankRun()];
+    while (hydrated.runs.length < hydrated.runCount) {
+      hydrated.runs.push(blankRun());
+    }
+    return hydrated;
+  }
+
+  function hydrateProject(project) {
+    if (!project || typeof project !== "object") {
+      throw new Error("Project file is empty or invalid.");
+    }
+
+    const source = project.state && typeof project.state === "object" ? project.state : project;
+    const base = clone(simpleExample);
+    const sourceControllers = Array.isArray(source.controllers) ? source.controllers : [];
+
+    return {
+      ...base,
+      ...source,
+      sharedPower: {
+        ...base.sharedPower,
+        ...(source.sharedPower && typeof source.sharedPower === "object" ? source.sharedPower : {})
+      },
+      controllers: base.controllers.map((controller, index) => hydrateController(sourceControllers[index] || controller))
+    };
+  }
+
+  function saveProjectFile() {
+    normalizeState(state);
+    const payload = {
+      type: PROJECT_FILE_TYPE,
+      version: PROJECT_FILE_VERSION,
+      savedAt: new Date().toISOString(),
+      state
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slugifyFileName(state.projectName)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  }
+
+  function openProjectFile(event) {
+    const [file] = event.target.files || [];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      try {
+        state = hydrateProject(JSON.parse(reader.result));
+        activePreset = "custom";
+        collapsedControllers.clear();
+        render();
+      } catch (error) {
+        window.alert("This project file could not be opened. Please choose a saved tape light project JSON file.");
+      } finally {
+        event.target.value = "";
+      }
+    });
+    reader.readAsText(file);
+  }
+
   document.addEventListener("input", updateFromEvent);
   document.addEventListener("change", updateFromEvent);
   document.addEventListener("toggle", handleControllerDetailsToggle, true);
@@ -1640,6 +1770,9 @@
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
   els.panMapLeft.addEventListener("click", () => panSystemMap(-1));
   els.panMapRight.addEventListener("click", () => panSystemMap(1));
+  els.saveProject.addEventListener("click", saveProjectFile);
+  els.openProject.addEventListener("click", () => els.projectFile.click());
+  els.projectFile.addEventListener("change", openProjectFile);
   els.simpleExample.addEventListener("click", () => {
     activePreset = "simple";
     collapsedControllers.clear();

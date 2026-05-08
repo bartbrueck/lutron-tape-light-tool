@@ -91,6 +91,15 @@ label span,
   font-weight: 800;
 }
 
+.field-help {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 h1,
 h2,
 h3,
@@ -141,6 +150,33 @@ h3 {
   display: grid;
   gap: 7px;
   width: min(420px, 42vw);
+}
+
+.project-actions {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  width: min(520px, 46vw);
+}
+
+.project-actions .project-name {
+  width: 100%;
+}
+
+.project-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.project-file-actions button {
+  min-height: 38px;
+  padding: 7px 12px;
+  font-size: 0.9rem;
 }
 
 .status-strip {
@@ -1183,6 +1219,18 @@ h3 {
   margin-bottom: 0;
 }
 
+.run-title-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.run-name-field {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+}
+
 .run-note {
   margin: -2px 0 0;
   color: var(--muted);
@@ -1219,7 +1267,7 @@ h3 {
 
 .extra-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 0.45fr));
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.38fr);
   gap: 12px;
   align-items: end;
   padding-top: 12px;
@@ -1264,6 +1312,17 @@ h3 {
   display: grid;
   gap: 18px;
   padding: 18px;
+}
+
+.mobile-results-panel {
+  display: none;
+}
+
+.mobile-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
 }
 
 .results-top {
@@ -1455,6 +1514,21 @@ h3 {
     width: 100%;
   }
 
+  .project-actions {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .project-file-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .project-file-actions button {
+    width: 100%;
+  }
+
   .status-strip {
     grid-template-columns: 1fr auto;
     padding: 9px 16px;
@@ -1466,7 +1540,18 @@ h3 {
   }
 
   .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    max-width: 100vw;
+    overflow: hidden;
     padding: 18px 16px 36px;
+  }
+
+  .planner {
+    width: 100%;
+    min-width: 0;
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
   }
 
   .setup-card,
@@ -1549,6 +1634,49 @@ h3 {
 
   .criteria-details {
     display: block;
+    width: calc(100vw - 48px);
+    max-width: calc(100vw - 48px);
+    overflow: hidden;
+  }
+
+  .criteria-details dt,
+  .criteria-details dd {
+    overflow-wrap: anywhere;
+  }
+
+  .criteria-details dl {
+    padding-right: 52px;
+  }
+
+  .mobile-results-panel {
+    display: grid;
+    gap: 14px;
+    width: calc(100vw - 48px);
+    max-width: calc(100vw - 48px);
+    overflow: hidden;
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-results-panel:not([open]) {
+    gap: 0;
+  }
+
+  .mobile-results-panel .card-summary {
+    display: list-item;
+  }
+
+  .mobile-results-panel .summary-title {
+    display: inline-grid;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .mobile-results-panel .summary-metrics {
+    padding-top: 2px;
   }
 
   .system-preview {

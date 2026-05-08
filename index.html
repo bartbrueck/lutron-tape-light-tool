@@ -12,16 +12,70 @@
         <p class="eyebrow">Lutron Lumaris + Rania</p>
         <h1>Tape Light Installer Check</h1>
       </div>
-      <label class="project-name">
-        <span>Project name</span>
-        <input id="projectName" type="text" placeholder="Kitchen, shelves, cove, media wall">
-      </label>
+      <div class="project-actions">
+        <label class="project-name">
+          <span>Project name</span>
+          <input id="projectName" type="text" placeholder="Kitchen, shelves, cove, media wall">
+        </label>
+        <div class="project-file-actions" aria-label="Save or open project">
+          <button id="saveProject" type="button" class="secondary">Save project</button>
+          <button id="openProject" type="button" class="secondary">Open project</button>
+          <input id="projectFile" type="file" accept="application/json,.json" hidden>
+        </div>
+      </div>
     </header>
 
     <section id="statusStrip" class="status-strip" aria-label="Live answer"></section>
 
     <main class="app-shell">
       <section class="planner" aria-label="Tape light planner">
+        <details class="criteria-details">
+          <summary>Acceptance Criteria</summary>
+          <dl>
+            <div>
+              <dt>Power box load</dt>
+              <dd>Total load must stay under 96 W.</dd>
+            </div>
+            <div>
+              <dt>Tape per controller</dt>
+              <dd>Stay under the controller limit for the selected tape style.</dd>
+            </div>
+            <div>
+              <dt>Tape length</dt>
+              <dd>One-end feed: 16.4 ft max. Both-end feed: modeled as two half-length feeds.</dd>
+            </div>
+            <div>
+              <dt>Start of Tape</dt>
+              <dd>Light loss before the tape starts, based on wire length, wire size, and total load.</dd>
+            </div>
+            <div>
+              <dt>Start to End of Tape</dt>
+              <dd>Brightness difference from the tape start to the far end.</dd>
+            </div>
+            <div>
+              <dt>Result ranges</dt>
+              <dd>Under 25% is good. 25-40% may be visible. Over 40% is not recommended.</dd>
+            </div>
+          </dl>
+        </details>
+
+        <details class="mobile-results-panel" aria-label="Live answer">
+          <summary class="card-summary">
+            <span class="summary-title">
+              <span class="section-kicker">Live answer</span>
+              <span id="mobileOverallStatus" class="summary-heading">Ready</span>
+            </span>
+            <span id="mobileOverallPill" class="pill neutral">No runs</span>
+          </summary>
+
+          <div id="mobileSummaryMetrics" class="summary-metrics"></div>
+
+          <section class="issue-section" aria-labelledby="mobileIssueTitle">
+            <h3 id="mobileIssueTitle">What to fix</h3>
+            <div id="mobileIssueList"></div>
+          </section>
+        </details>
+
         <div class="toolbar" aria-label="Project controls">
           <button id="simpleExample" type="button" class="example-button secondary" aria-pressed="true">
             <strong>Simple example</strong>
@@ -73,36 +127,6 @@
         </section>
 
         <section id="controllers" class="controllers" aria-label="Controllers"></section>
-
-        <details class="criteria-details">
-          <summary>Acceptance Criteria</summary>
-          <dl>
-            <div>
-              <dt>Power box load</dt>
-              <dd>Total load must stay under 96 W.</dd>
-            </div>
-            <div>
-              <dt>Tape per controller</dt>
-              <dd>Total tape connected to one controller must stay under the limit for the selected tape style.</dd>
-            </div>
-            <div>
-              <dt>Tape length</dt>
-              <dd>A run powered from one end should be 16.4 ft or less. If powered from both ends, it is modeled as two half-length feeds.</dd>
-            </div>
-            <div>
-              <dt>Start of Tape</dt>
-              <dd>Estimated light loss before the tape begins. This is affected by wire length, wire size, and total load.</dd>
-            </div>
-            <div>
-              <dt>Start to End of Tape</dt>
-              <dd>Estimated brightness difference from the start of the tape to the far end of the tape.</dd>
-            </div>
-            <div>
-              <dt>Result ranges</dt>
-              <dd>Under 25% is within recommended range. 25-40% may be visible. Over 40% is not recommended.</dd>
-            </div>
-          </dl>
-        </details>
       </section>
 
       <aside class="results-panel" aria-label="Results">
@@ -130,23 +154,23 @@
             </div>
             <div>
               <dt>Tape per controller</dt>
-              <dd>Total tape connected to one controller must stay under the limit for the selected tape style.</dd>
+              <dd>Stay under the controller limit for the selected tape style.</dd>
             </div>
             <div>
               <dt>Tape length</dt>
-              <dd>A run powered from one end should be 16.4 ft or less. If powered from both ends, it is modeled as two half-length feeds.</dd>
+              <dd>One-end feed: 16.4 ft max. Both-end feed: modeled as two half-length feeds.</dd>
             </div>
             <div>
               <dt>Start of Tape</dt>
-              <dd>Estimated light loss before the tape begins. This is affected by wire length, wire size, and total load.</dd>
+              <dd>Light loss before the tape starts, based on wire length, wire size, and total load.</dd>
             </div>
             <div>
               <dt>Start to End of Tape</dt>
-              <dd>Estimated brightness difference from the start of the tape to the far end of the tape.</dd>
+              <dd>Brightness difference from the tape start to the far end.</dd>
             </div>
             <div>
               <dt>Result ranges</dt>
-              <dd>Under 25% is within recommended range. 25-40% may be visible. Over 40% is not recommended.</dd>
+              <dd>Under 25% is good. 25-40% may be visible. Over 40% is not recommended.</dd>
             </div>
           </dl>
         </section>
