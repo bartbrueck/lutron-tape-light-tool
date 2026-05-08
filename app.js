@@ -136,6 +136,8 @@
     workbookExample: document.querySelector("#workbookExample"),
     clearAll: document.querySelector("#clearAll"),
     systemMap: document.querySelector("#systemMap"),
+    panMapLeft: document.querySelector("#panMapLeft"),
+    panMapRight: document.querySelector("#panMapRight"),
     overallStatus: document.querySelector("#overallStatus"),
     overallPill: document.querySelector("#overallPill"),
     summaryMetrics: document.querySelector("#summaryMetrics"),
@@ -925,9 +927,11 @@
     });
 
     return `
-      <svg class="system-map-svg ${complexMap ? "complex" : "simple"}" style="--map-width: ${width}px;" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live system wiring map">
-        ${pieces.join("")}
-      </svg>
+      <div class="system-map-track" style="--map-width: ${width}px;">
+        <svg class="system-map-svg ${complexMap ? "complex" : "simple"}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live system wiring map">
+          ${pieces.join("")}
+        </svg>
+      </div>
     `;
   }
 
@@ -1008,6 +1012,7 @@
           <span>Turn on a controller to build the map.</span>
         </div>
       `;
+      queueMapPanUpdate();
       return;
     }
 
@@ -1015,6 +1020,7 @@
       ${renderSystemMapSvg(result, activeControllers)}
       ${renderSystemMapStack(result, activeControllers)}
     `;
+    queueMapPanUpdate();
   }
 
   function renderSharedPowerFields() {
@@ -1474,6 +1480,46 @@
     highlightTarget(target);
   }
 
+  function queueMapPanUpdate() {
+    window.requestAnimationFrame(() => {
+      updateMapPanControls();
+      window.setTimeout(updateMapPanControls, 80);
+    });
+  }
+
+  function updateMapPanControls() {
+    const hasMap = Boolean(els.systemMap.querySelector(".system-map-track"));
+    const isSmallScreen = window.matchMedia("(max-width: 720px)").matches;
+    const canScroll = els.systemMap.scrollWidth - els.systemMap.clientWidth > 48;
+    const canPan = hasMap && isSmallScreen;
+    const atStart = els.systemMap.scrollLeft <= 1;
+    const atEnd = canScroll && els.systemMap.scrollLeft + els.systemMap.clientWidth >= els.systemMap.scrollWidth - 1;
+
+    [els.panMapLeft, els.panMapRight].forEach((button) => {
+      button.hidden = !canPan;
+    });
+
+    els.panMapLeft.disabled = !canPan || atStart;
+    els.panMapRight.disabled = !canPan || atEnd;
+  }
+
+  function panSystemMap(direction) {
+    const distance = Math.max(220, els.systemMap.clientWidth * 0.72);
+    const before = els.systemMap.scrollLeft;
+    const maxScroll = Math.max(0, els.systemMap.scrollWidth - els.systemMap.clientWidth);
+    const target = Math.max(0, Math.min(maxScroll, before + direction * distance));
+    els.systemMap.scrollTo({
+      left: target,
+      behavior: "smooth"
+    });
+    window.setTimeout(() => {
+      if (Math.abs(els.systemMap.scrollLeft - before) < 2 && target !== before) {
+        els.systemMap.scrollLeft = target;
+      }
+      updateMapPanControls();
+    }, 220);
+  }
+
   function handleSystemMapPointerDown(event) {
     if (event.pointerType === "touch") return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -1584,16 +1630,16 @@
   document.addEventListener("input", updateFromEvent);
   document.addEventListener("change", updateFromEvent);
   document.addEventListener("toggle", handleControllerDetailsToggle, true);
+  window.addEventListener("resize", updateMapPanControls);
+  els.systemMap.addEventListener("scroll", updateMapPanControls);
   els.systemMap.addEventListener("pointerdown", handleSystemMapPointerDown);
   els.systemMap.addEventListener("pointermove", handleSystemMapPointerMove);
   els.systemMap.addEventListener("pointerup", handleSystemMapPointerEnd);
   els.systemMap.addEventListener("pointercancel", handleSystemMapPointerEnd);
-  els.systemMap.addEventListener("touchstart", handleSystemMapTouchStart, { passive: true });
-  els.systemMap.addEventListener("touchmove", handleSystemMapTouchMove, { passive: false });
-  els.systemMap.addEventListener("touchend", handleSystemMapTouchEnd);
-  els.systemMap.addEventListener("touchcancel", handleSystemMapTouchEnd);
   els.systemMap.addEventListener("click", handleSystemMapJump);
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
+  els.panMapLeft.addEventListener("click", () => panSystemMap(-1));
+  els.panMapRight.addEventListener("click", () => panSystemMap(1));
   els.simpleExample.addEventListener("click", () => {
     activePreset = "simple";
     collapsedControllers.clear();

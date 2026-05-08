@@ -10,8 +10,8 @@
   --wire: #526f8b;
   --accent: #1b7dd2;
   --accent-strong: #145fa3;
-  --ok: #226f8f;
-  --ok-bg: #e5f2fb;
+  --ok: #18864b;
+  --ok-bg: #e6f6ed;
   --warn: #9a6615;
   --warn-bg: #fff1d8;
   --fail: #a93d3d;
@@ -294,17 +294,30 @@ h3 {
   transform: rotate(45deg) translate(-1px, -1px);
 }
 
-.system-map {
+.system-map-shell {
+  position: relative;
   width: 100%;
+  inline-size: 100%;
+  max-width: 100%;
+  max-inline-size: 100%;
+  min-width: 0;
+  contain: inline-size;
+}
+
+.system-map {
+  display: block;
+  width: 100%;
+  inline-size: 100%;
   min-width: 0;
   max-width: 100%;
+  max-inline-size: 100%;
   min-height: 220px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
   scrollbar-gutter: stable;
   touch-action: auto;
-  cursor: grab;
+  contain: inline-size;
   user-select: none;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -316,8 +329,38 @@ h3 {
   background-size: 28px 28px;
 }
 
-.system-map.is-dragging {
-  cursor: grabbing;
+.system-map-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: none;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.map-pan-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0;
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 8px 18px rgba(29, 39, 51, 0.18);
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.map-pan-button:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
 .system-map-empty {
@@ -335,6 +378,12 @@ h3 {
   color: var(--ink);
 }
 
+.system-map-track {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .system-map-svg {
   display: block;
   width: 100%;
@@ -346,7 +395,7 @@ h3 {
 .system-map-node,
 .system-map-wire-link,
 .system-map-tape-link {
-  cursor: pointer;
+  cursor: default;
 }
 
 .system-map-node rect {
@@ -1453,14 +1502,27 @@ h3 {
   .system-map {
     overflow-x: auto;
     padding: 10px;
-    touch-action: none;
+    touch-action: auto;
+  }
+
+  .system-map-controls {
+    display: flex;
+    right: auto;
+    left: 18px;
+    bottom: 18px;
+  }
+
+  .system-map-track {
+    width: var(--map-width);
+    max-width: none;
+    min-width: var(--map-width);
   }
 
   .system-map-svg {
     display: block;
-    width: var(--map-width);
+    width: 100%;
     max-width: none;
-    min-width: var(--map-width);
+    min-width: 0;
   }
 
   .system-map-stack {
