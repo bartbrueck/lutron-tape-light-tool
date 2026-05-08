@@ -124,6 +124,7 @@
 
   let state = clone(simpleExample);
   let activePreset = "simple";
+  const collapsedControllers = new Set();
 
   const els = {
     projectName: document.querySelector("#projectName"),
@@ -132,6 +133,7 @@
     simpleExample: document.querySelector("#simpleExample"),
     workbookExample: document.querySelector("#workbookExample"),
     clearAll: document.querySelector("#clearAll"),
+    systemMap: document.querySelector("#systemMap"),
     overallStatus: document.querySelector("#overallStatus"),
     overallPill: document.querySelector("#overallPill"),
     summaryMetrics: document.querySelector("#summaryMetrics"),
@@ -751,6 +753,268 @@
     `;
   }
 
+  function systemMapNode(x, y, width, height, title, sub, level, jump, className = "") {
+    return `
+      <g class="system-map-node ${level} ${className}" data-jump="${escapeHtml(jump)}" role="button" tabindex="0">
+        <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8"></rect>
+        <text x="${x + width / 2}" y="${y + 25}" class="system-map-title" text-anchor="middle">${escapeHtml(title)}</text>
+        <text x="${x + width / 2}" y="${y + 47}" class="system-map-sub" text-anchor="middle">${escapeHtml(sub)}</text>
+      </g>
+    `;
+  }
+
+  function systemMapWire(x1, y1, x2, y2, label, level, jump) {
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const labelOffset = Math.abs(y2 - y1) > 38 ? -12 : -9;
+    return `
+      <g class="system-map-wire-link ${level}" data-jump="${escapeHtml(jump)}" role="button" tabindex="0">
+        <line class="system-map-wire-hit" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
+        <line class="system-map-wire ${level}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
+        <text class="system-map-wire-label" x="${midX}" y="${midY + labelOffset}" text-anchor="middle">${escapeHtml(label)}</text>
+      </g>
+    `;
+  }
+
+  function systemMapTape(x, y, run, level, jump) {
+    const tapeWidth = Math.min(178, Math.max(48, 36 + run.tapeLength * 3.2));
+    const bothEnds = run.feedBothEnds
+      ? `
+        <circle class="system-map-tape-end ${level}" cx="${x}" cy="${y}" r="5"></circle>
+        <circle class="system-map-tape-end ${level}" cx="${x + tapeWidth}" cy="${y}" r="5"></circle>
+        <text class="system-map-note" x="${x + tapeWidth / 2}" y="${y - 13}" text-anchor="middle">fed both ends</text>
+      `
+      : "";
+
+    return `
+      <g class="system-map-tape-link ${level}" data-jump="${escapeHtml(jump)}" role="button" tabindex="0">
+        <line class="system-map-tape-hit" x1="${x}" y1="${y}" x2="${x + tapeWidth}" y2="${y}"></line>
+        <line class="system-map-tape ${level}" x1="${x}" y1="${y}" x2="${x + tapeWidth}" y2="${y}"></line>
+        ${bothEnds}
+      </g>
+    `;
+  }
+
+  function wireTag(distance, wireSize) {
+    return `${ft(distance)} / ${wireSize} AWG`;
+  }
+
+  function controllerJump(controller) {
+    return `#controller-${controller.controllerIndex + 1}`;
+  }
+
+  function controllerPowerJump(controller) {
+    return `#controller-${controller.controllerIndex + 1}-power`;
+  }
+
+  function tapeSplitJump(controller) {
+    return `#controller-${controller.controllerIndex + 1}-tape-split`;
+  }
+
+  function runJump(controller, run) {
+    return `#controller-${controller.controllerIndex + 1}-run-${run.runName}`;
+  }
+
+  function renderSystemMapSvg(result, activeControllers) {
+    const complexMap =
+      state.powerMode === "shared" ||
+      activeControllers.length > 1 ||
+      activeControllers.some((controller) => controller.tapeMode === "shared" || controller.runCount > 1);
+    const width = complexMap ? 1400 : 1040;
+    const runGap = 88;
+    const controllerGap = 42;
+    const layouts = [];
+    let cursorY = 36;
+
+    activeControllers.forEach((controller) => {
+      const runs = controller.runResults.slice(0, controller.runCount);
+      const blockHeight = Math.max(120, runs.length * runGap);
+      layouts.push({
+        controller,
+        runs,
+        blockHeight,
+        midY: cursorY + blockHeight / 2
+      });
+      cursorY += blockHeight + controllerGap;
+    });
+
+    const height = Math.max(250, cursorY + 16);
+    const powerX = 42;
+    const powerY = height / 2 - 32;
+    const powerSplitX = complexMap ? 300 : 210;
+    const controllerX = complexMap ? 570 : 410;
+    const tapeSplitX = complexMap ? 850 : 610;
+    const runX = complexMap ? 1120 : 690;
+    const tapeX = complexMap ? 1300 : 840;
+    const pieces = [
+      systemMapNode(powerX, powerY, 118, 64, "Power Box", "LU-PH3", result.level === "fail" ? "fail" : "neutral", "#powerFeedCard")
+    ];
+
+    if (state.powerMode === "shared") {
+      pieces.push(
+        systemMapWire(
+          powerX + 118,
+          powerY + 32,
+          powerSplitX,
+          powerY + 32,
+          wireTag(state.sharedPower.distance, state.sharedPower.wireSize),
+          result.level,
+          "#sharedPowerFields"
+        )
+      );
+      pieces.push(systemMapNode(powerSplitX, powerY, 96, 64, "Power Split", "to controllers", result.level, "#sharedPowerFields"));
+    }
+
+    layouts.forEach(({ controller, runs, midY }) => {
+      const controllerLevel = controllerVisualLevel(controller);
+      const controllerY = midY - 32;
+      const sourceX = state.powerMode === "shared" ? powerSplitX + 96 : powerX + 118;
+      const sourceY = powerY + 32;
+      const powerLabel =
+        state.powerMode === "shared"
+          ? wireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
+          : wireTag(controller.distancePowerToController, controller.wireSizePowerToController);
+
+      pieces.push(systemMapWire(sourceX, sourceY, controllerX, controllerY + 32, powerLabel, controllerLevel, controllerPowerJump(controller)));
+      pieces.push(
+        systemMapNode(
+          controllerX,
+          controllerY,
+          128,
+          64,
+          `Controller ${controller.controllerIndex + 1}`,
+          `${ft(controller.totalTapeLength)} tape`,
+          controllerLevel,
+          controllerJump(controller)
+        )
+      );
+
+      const runSourceX = controller.tapeMode === "shared" ? tapeSplitX + 96 : controllerX + 128;
+      const runSourceY = controller.tapeMode === "shared" ? controllerY + 32 : controllerY + 32;
+
+      if (controller.tapeMode === "shared") {
+        const splitLevel = worstLevel(runs.map((run) => runVisualLevel(run)));
+        pieces.push(
+          systemMapWire(
+            controllerX + 128,
+            controllerY + 32,
+            tapeSplitX,
+            controllerY + 32,
+            wireTag(controller.distanceControllerToTapeSplit, controller.wireSizeControllerToTapeSplit),
+            splitLevel,
+            tapeSplitJump(controller)
+          )
+        );
+        pieces.push(systemMapNode(tapeSplitX, controllerY, 96, 64, "Tape Split", "to runs", splitLevel, tapeSplitJump(controller)));
+      }
+
+      const firstRunY = midY - ((runs.length - 1) * runGap) / 2;
+      runs.forEach((run, runIndex) => {
+        const runY = firstRunY + runIndex * runGap;
+        const runLevel = runVisualLevel(run);
+        const jump = runJump(controller, run);
+        const wireSize = run.wireSizeToTapeStart;
+        const runSub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
+
+        pieces.push(systemMapWire(runSourceX, runSourceY, runX, runY, wireTag(run.runDistance, wireSize), runLevel, jump));
+        pieces.push(systemMapNode(runX, runY - 30, 112, 60, `Run ${run.runName}`, runSub, runLevel, jump, "run"));
+        pieces.push(systemMapTape(tapeX, runY, run, runLevel, jump));
+      });
+    });
+
+    return `
+      <svg class="system-map-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live system wiring map">
+        ${pieces.join("")}
+      </svg>
+    `;
+  }
+
+  function mapStackItem(title, sub, level, jump, className = "") {
+    return `
+      <button type="button" class="map-stack-item ${level} ${className}" data-jump="${escapeHtml(jump)}">
+        <span>${escapeHtml(title)}</span>
+        <strong>${escapeHtml(sub)}</strong>
+      </button>
+    `;
+  }
+
+  function mapStackWire(label, level, jump) {
+    return `
+      <button type="button" class="map-stack-wire ${level}" data-jump="${escapeHtml(jump)}">
+        <span>${escapeHtml(label)}</span>
+      </button>
+    `;
+  }
+
+  function renderSystemMapStack(result, activeControllers) {
+    const pieces = [
+      mapStackItem("Power Box", "LU-PH3", result.level === "fail" ? "fail" : "neutral", "#powerFeedCard")
+    ];
+
+    if (state.powerMode === "shared") {
+      pieces.push(mapStackWire(wireTag(state.sharedPower.distance, state.sharedPower.wireSize), result.level, "#sharedPowerFields"));
+      pieces.push(mapStackItem("Power Split", "to controllers", result.level, "#sharedPowerFields"));
+    }
+
+    activeControllers.forEach((controller) => {
+      const controllerLevel = controllerVisualLevel(controller);
+      const powerLabel =
+        state.powerMode === "shared"
+          ? wireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
+          : wireTag(controller.distancePowerToController, controller.wireSizePowerToController);
+
+      pieces.push(mapStackWire(powerLabel, controllerLevel, controllerPowerJump(controller)));
+      pieces.push(
+        mapStackItem(
+          `Controller ${controller.controllerIndex + 1}`,
+          `${ft(controller.totalTapeLength)} tape`,
+          controllerLevel,
+          controllerJump(controller)
+        )
+      );
+
+      if (controller.tapeMode === "shared") {
+        const splitLevel = worstLevel(controller.runResults.map((run) => runVisualLevel(run)));
+        pieces.push(
+          mapStackWire(
+            wireTag(controller.distanceControllerToTapeSplit, controller.wireSizeControllerToTapeSplit),
+            splitLevel,
+            tapeSplitJump(controller)
+          )
+        );
+        pieces.push(mapStackItem("Tape Split", "to runs", splitLevel, tapeSplitJump(controller)));
+      }
+
+      controller.runResults.slice(0, controller.runCount).forEach((run) => {
+        const runLevel = runVisualLevel(run);
+        const sub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
+        pieces.push(mapStackWire(wireTag(run.runDistance, run.wireSizeToTapeStart), runLevel, runJump(controller, run)));
+        pieces.push(mapStackItem(`Run ${run.runName}`, sub, runLevel, runJump(controller, run), run.feedBothEnds ? "both-ends" : ""));
+      });
+    });
+
+    return `<div class="system-map-stack">${pieces.join("")}</div>`;
+  }
+
+  function renderSystemMap(result) {
+    const activeControllers = result.controllers.filter((controller) => controller.enabled);
+
+    if (!activeControllers.length) {
+      els.systemMap.innerHTML = `
+        <div class="system-map-empty">
+          <strong>No controllers selected</strong>
+          <span>Turn on a controller to build the map.</span>
+        </div>
+      `;
+      return;
+    }
+
+    els.systemMap.innerHTML = `
+      ${renderSystemMapSvg(result, activeControllers)}
+      ${renderSystemMapStack(result, activeControllers)}
+    `;
+  }
+
   function renderSharedPowerFields() {
     if (state.powerMode !== "shared") {
       els.sharedPowerFields.innerHTML = "";
@@ -786,7 +1050,7 @@
     const index = controller.controllerIndex;
     if (state.powerMode === "shared") {
       return `
-        <div class="wire-map">
+        <div id="controller-${index + 1}-power" class="wire-map">
           <div class="map-node">
             <span>Split</span>
             <strong>Power feed</strong>
@@ -811,7 +1075,7 @@
     }
 
     return `
-      <div class="wire-map">
+      <div id="controller-${index + 1}-power" class="wire-map">
         <div class="map-node">
           <span>Power box</span>
           <strong>LU-PH3</strong>
@@ -840,7 +1104,7 @@
     if (controller.tapeMode !== "shared") return "";
 
     return `
-      <div class="wire-map">
+      <div id="controller-${index + 1}-tape-split" class="wire-map">
         <div class="map-node">
           <span>Controller</span>
           <strong>${index + 1}</strong>
@@ -894,7 +1158,7 @@
       : `One-end feed limit: ${ft(FULL_REEL_FT)}.`;
 
     return `
-      <section class="run-card">
+      <section id="controller-${controllerIndex + 1}-run-${run.runName}" class="run-card">
         <div class="run-card-top">
           <div>
             <p class="section-kicker">Run ${run.runName}</p>
@@ -945,9 +1209,10 @@
   function renderController(controller) {
     const index = controller.controllerIndex;
     const statusText = controller.enabled ? `${ft(controller.totalTapeLength)} / ${ft(controller.tape.maxControllerFt)}` : "Disabled";
+    const isCollapsed = collapsedControllers.has(index);
     const body = controller.enabled
       ? `
-        <div class="controller-body">
+        <div id="controller-${index + 1}-body" class="controller-body">
           <div class="controller-settings">
             <label>
               <span>Tape style</span>
@@ -1007,9 +1272,11 @@
       : "";
 
     return `
-      <article class="controller-card">
-        <div class="controller-top">
-          <label class="switch">
+      <details id="controller-${index + 1}" class="controller-card collapsible-card" data-controller-details="${index}" ${
+      isCollapsed ? "" : "open"
+    }>
+        <summary class="controller-top controller-summary">
+          <label class="switch" onclick="event.stopPropagation()">
             <input data-path="controllers.${index}.enabled" type="checkbox" ${controller.enabled ? "checked" : ""}>
             <span>Use controller ${index + 1}</span>
           </label>
@@ -1017,10 +1284,13 @@
             <strong>${controller.tape.label}</strong>
             <span>${controller.tape.detail} - ${amps(controller.totalTapeCurrent)} tape, ${amps(controller.inputCurrent)} total</span>
           </div>
-          <div class="controller-status">${pill(controller.tapeStatus)} <span class="muted">${statusText}</span></div>
-        </div>
+          <div class="controller-actions">
+            <div class="controller-status">${pill(controller.tapeStatus)} <span class="muted">${statusText}</span></div>
+          </div>
+          <span class="summary-action" aria-hidden="true"></span>
+        </summary>
         ${body}
-      </article>
+      </details>
     `;
   }
 
@@ -1059,18 +1329,9 @@
     });
   }
 
-  function render() {
-    normalizeState(state);
-    const result = evaluate(state);
-
-    els.projectName.value = state.projectName;
-    document.querySelectorAll("input[name='powerMode']").forEach((input) => {
-      input.checked = input.value === state.powerMode;
-    });
-
-    renderSharedPowerFields();
+  function renderLiveResults(result) {
     renderStatusStrip(result);
-    renderPresetButtons();
+    renderSystemMap(result);
 
     els.overallStatus.textContent = result.overall;
     els.overallPill.outerHTML = `<span id="overallPill" class="pill ${result.level}">${result.overall}</span>`;
@@ -1090,6 +1351,26 @@
     els.issueList.innerHTML = `<div class="issue-list">${result.issues
       .map((item) => `<div class="issue ${item.level}"><strong>${item.title}</strong><span>${item.detail}</span></div>`)
       .join("")}</div>`;
+  }
+
+  function refreshLiveResults() {
+    normalizeState(state);
+    renderLiveResults(evaluate(state));
+    renderPresetButtons();
+  }
+
+  function render() {
+    normalizeState(state);
+    const result = evaluate(state);
+
+    els.projectName.value = state.projectName;
+    document.querySelectorAll("input[name='powerMode']").forEach((input) => {
+      input.checked = input.value === state.powerMode;
+    });
+
+    renderSharedPowerFields();
+    renderLiveResults(result);
+    renderPresetButtons();
 
     els.controllers.innerHTML = result.controllers.map((controller) => renderController(controller)).join("");
   }
@@ -1104,6 +1385,13 @@
     target[parts[parts.length - 1]] = value;
   }
 
+  function renderKeepingScroll() {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    render();
+    window.scrollTo(x, y);
+  }
+
   function updateFromEvent(event) {
     const target = event.target;
 
@@ -1115,7 +1403,7 @@
     if (target.name === "powerMode") {
       activePreset = "custom";
       state.powerMode = target.value;
-      render();
+      renderKeepingScroll();
       return;
     }
 
@@ -1149,7 +1437,45 @@
       }
     }
     normalizeState(state);
-    render();
+    if (event.type === "input" && target.type === "number") {
+      refreshLiveResults();
+      return;
+    }
+
+    renderKeepingScroll();
+  }
+
+  function highlightTarget(target) {
+    target.classList.remove("jump-highlight");
+    window.requestAnimationFrame(() => {
+      target.classList.add("jump-highlight");
+    });
+  }
+
+  function handleSystemMapJump(event) {
+    if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+
+    const trigger = event.target.closest("[data-jump]");
+    if (!trigger || !els.systemMap.contains(trigger)) return;
+
+    const target = document.querySelector(trigger.dataset.jump);
+    if (!target) return;
+
+    event.preventDefault();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    highlightTarget(target);
+  }
+
+  function handleControllerDetailsToggle(event) {
+    const details = event.target.closest?.("[data-controller-details]");
+    if (!details) return;
+
+    const index = Number(details.dataset.controllerDetails);
+    if (details.open) {
+      collapsedControllers.delete(index);
+    } else {
+      collapsedControllers.add(index);
+    }
   }
 
   function blankProject() {
@@ -1172,18 +1498,24 @@
 
   document.addEventListener("input", updateFromEvent);
   document.addEventListener("change", updateFromEvent);
+  document.addEventListener("toggle", handleControllerDetailsToggle, true);
+  els.systemMap.addEventListener("click", handleSystemMapJump);
+  els.systemMap.addEventListener("keydown", handleSystemMapJump);
   els.simpleExample.addEventListener("click", () => {
     activePreset = "simple";
+    collapsedControllers.clear();
     state = clone(simpleExample);
     render();
   });
   els.workbookExample.addEventListener("click", () => {
     activePreset = "advanced";
+    collapsedControllers.clear();
     state = clone(workbookExample);
     render();
   });
   els.clearAll.addEventListener("click", () => {
     activePreset = "blank";
+    collapsedControllers.clear();
     state = blankProject();
     render();
   });
