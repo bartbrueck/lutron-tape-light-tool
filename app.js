@@ -1475,25 +1475,32 @@
   }
 
   function handleSystemMapPointerDown(event) {
+    if (event.pointerType === "touch") return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    beginSystemMapPan(event.pointerId, event.clientX, event.clientY);
+
+    if (mapPan) {
+      els.systemMap.setPointerCapture?.(event.pointerId);
+    }
+  }
+
+  function beginSystemMapPan(id, clientX, clientY) {
     if (els.systemMap.scrollWidth <= els.systemMap.clientWidth) return;
 
     mapPan = {
-      id: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      id,
+      startX: clientX,
+      startY: clientY,
       scrollLeft: els.systemMap.scrollLeft,
       moved: false
     };
-
-    els.systemMap.setPointerCapture?.(event.pointerId);
   }
 
-  function handleSystemMapPointerMove(event) {
-    if (!mapPan || event.pointerId !== mapPan.id) return;
+  function moveSystemMapPan(id, clientX, clientY, event) {
+    if (!mapPan || id !== mapPan.id) return;
 
-    const deltaX = event.clientX - mapPan.startX;
-    const deltaY = event.clientY - mapPan.startY;
+    const deltaX = clientX - mapPan.startX;
+    const deltaY = clientY - mapPan.startY;
     if (Math.abs(deltaX) <= 4 || Math.abs(deltaX) < Math.abs(deltaY)) return;
 
     mapPan.moved = true;
@@ -1502,8 +1509,8 @@
     event.preventDefault();
   }
 
-  function handleSystemMapPointerEnd(event) {
-    if (!mapPan || event.pointerId !== mapPan.id) return;
+  function endSystemMapPan(id) {
+    if (!mapPan || id !== mapPan.id) return false;
 
     if (mapPan.moved) {
       suppressNextMapJump = true;
@@ -1512,9 +1519,36 @@
       }, 120);
     }
 
-    els.systemMap.releasePointerCapture?.(event.pointerId);
     els.systemMap.classList.remove("is-dragging");
     mapPan = null;
+    return true;
+  }
+
+  function handleSystemMapPointerMove(event) {
+    moveSystemMapPan(event.pointerId, event.clientX, event.clientY, event);
+  }
+
+  function handleSystemMapPointerEnd(event) {
+    const ended = endSystemMapPan(event.pointerId);
+    if (ended) {
+      els.systemMap.releasePointerCapture?.(event.pointerId);
+    }
+  }
+
+  function handleSystemMapTouchStart(event) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    beginSystemMapPan("touch", touch.clientX, touch.clientY);
+  }
+
+  function handleSystemMapTouchMove(event) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    moveSystemMapPan("touch", touch.clientX, touch.clientY, event);
+  }
+
+  function handleSystemMapTouchEnd() {
+    endSystemMapPan("touch");
   }
 
   function handleControllerDetailsToggle(event) {
@@ -1554,6 +1588,10 @@
   els.systemMap.addEventListener("pointermove", handleSystemMapPointerMove);
   els.systemMap.addEventListener("pointerup", handleSystemMapPointerEnd);
   els.systemMap.addEventListener("pointercancel", handleSystemMapPointerEnd);
+  els.systemMap.addEventListener("touchstart", handleSystemMapTouchStart, { passive: true });
+  els.systemMap.addEventListener("touchmove", handleSystemMapTouchMove, { passive: false });
+  els.systemMap.addEventListener("touchend", handleSystemMapTouchEnd);
+  els.systemMap.addEventListener("touchcancel", handleSystemMapTouchEnd);
   els.systemMap.addEventListener("click", handleSystemMapJump);
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
   els.simpleExample.addEventListener("click", () => {
