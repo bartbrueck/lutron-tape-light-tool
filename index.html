@@ -4,6 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>T.R.A.C.E. Tool | Lutron Lumaris + Rania</title>
+    <script>
+      try {
+        const storedTheme = localStorage.getItem("trace-theme");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (storedTheme === "dark" || (!storedTheme && prefersDark)) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (error) {}
+    </script>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -23,6 +32,14 @@
           <button id="openProject" type="button" class="secondary">Open project</button>
           <input id="projectFile" type="file" accept="application/json,.json" hidden>
         </div>
+        <label class="theme-toggle" for="darkModeToggle">
+          <span class="theme-toggle-copy">
+            <strong>Dark mode</strong>
+            <small>Low-light view</small>
+          </span>
+          <input id="darkModeToggle" type="checkbox" aria-label="Turn on dark mode">
+          <span class="theme-switch" aria-hidden="true"><span></span></span>
+        </label>
       </div>
     </header>
 

@@ -7,6 +7,7 @@
   const MAX_RUNS = 12;
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
+  const THEME_STORAGE_KEY = "trace-theme";
 
   const tapeTypes = [
     {
@@ -137,6 +138,7 @@
     saveProject: document.querySelector("#saveProject"),
     openProject: document.querySelector("#openProject"),
     projectFile: document.querySelector("#projectFile"),
+    darkModeToggle: document.querySelector("#darkModeToggle"),
     simpleExample: document.querySelector("#simpleExample"),
     workbookExample: document.querySelector("#workbookExample"),
     clearAll: document.querySelector("#clearAll"),
@@ -153,6 +155,38 @@
     mobileIssueList: document.querySelector("#mobileIssueList"),
     statusStrip: document.querySelector("#statusStrip")
   };
+
+  function storedTheme() {
+    try {
+      const theme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      return theme === "dark" || theme === "light" ? theme : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function preferredTheme() {
+    const savedTheme = storedTheme();
+    if (savedTheme) return savedTheme;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function applyTheme(theme, persist = false) {
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = nextTheme;
+    els.darkModeToggle.checked = nextTheme === "dark";
+    els.darkModeToggle.setAttribute("aria-label", nextTheme === "dark" ? "Turn off dark mode" : "Turn on dark mode");
+
+    if (!persist) return;
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch (error) {}
+  }
+
+  function handleThemeToggle() {
+    applyTheme(els.darkModeToggle.checked ? "dark" : "light", true);
+  }
 
   function blankRun() {
     return {
@@ -1447,6 +1481,8 @@
       return;
     }
 
+    if (target === els.darkModeToggle) return;
+
     if (target.name === "powerMode") {
       activePreset = "custom";
       state.powerMode = target.value;
@@ -1770,6 +1806,7 @@
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
   els.panMapLeft.addEventListener("click", () => panSystemMap(-1));
   els.panMapRight.addEventListener("click", () => panSystemMap(1));
+  els.darkModeToggle.addEventListener("change", handleThemeToggle);
   els.saveProject.addEventListener("click", saveProjectFile);
   els.openProject.addEventListener("click", () => els.projectFile.click());
   els.projectFile.addEventListener("change", openProjectFile);
@@ -1802,5 +1839,6 @@
   window.TRACETool = publicApi;
   window.LutronInstallerTapeCheckV4 = publicApi;
 
+  applyTheme(preferredTheme());
   render();
 })();
