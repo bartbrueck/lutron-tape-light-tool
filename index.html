@@ -13,33 +13,99 @@
         }
       } catch (error) {}
     </script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightstrip&display=swap">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 4h12l2 2v14H5z"></path>
+        <path d="M8 4v6h8V4"></path>
+        <path d="M8 20v-6h8v6"></path>
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 7h7l2 2h9v10H3z"></path>
+        <path d="M3 7v12"></path>
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M18 15.5A7.5 7.5 0 0 1 8.5 6a7.7 7.7 0 1 0 9.5 9.5z"></path>
+      </symbol>
+      <symbol id="icon-criteria" viewBox="0 0 24 24">
+        <path d="M5 6h14"></path>
+        <path d="M5 12h14"></path>
+        <path d="M5 18h10"></path>
+        <path d="M16.5 16.5l1.4 1.4 3-3"></path>
+      </symbol>
+      <symbol id="icon-insights" viewBox="0 0 24 24">
+        <path d="M4 19V5"></path>
+        <path d="M4 19h16"></path>
+        <path d="M8 16v-5"></path>
+        <path d="M12 16V8"></path>
+        <path d="M16 16v-3"></path>
+      </symbol>
+      <symbol id="icon-simple" viewBox="0 0 24 24">
+        <path d="M5 12h14"></path>
+        <path d="M15 8l4 4-4 4"></path>
+        <path d="M5 9v6"></path>
+      </symbol>
+      <symbol id="icon-advanced" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M12 12H5"></path>
+        <path d="M12 12h7"></path>
+        <path d="M5 9v6"></path>
+        <path d="M19 9v6"></path>
+      </symbol>
+      <symbol id="icon-blank" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-map" viewBox="0 0 24 24">
+        <path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path>
+        <path d="M9 4v14"></path>
+        <path d="M15 6v14"></path>
+      </symbol>
+      <symbol id="icon-bolt" viewBox="0 0 24 24">
+        <path d="M13 2L4 14h7l-1 8 9-12h-7z"></path>
+      </symbol>
+      <symbol id="icon-chevron-left" viewBox="0 0 24 24">
+        <path d="M15 6l-6 6 6 6"></path>
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="M9 6l6 6-6 6"></path>
+      </symbol>
+    </svg>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Lutron Lumaris + Rania</p>
-        <h1>T.R.A.C.E. Tool</h1>
-        <p class="tool-subtitle">Tape Run Assessment and Compliance Engine</p>
+      <div class="brand-lockup">
+        <span class="trace-mark" aria-hidden="true">
+          <span class="material-symbols-outlined app-icon">lightstrip</span>
+        </span>
+        <div>
+          <p class="eyebrow">Lutron Lumaris + Rania</p>
+          <h1>T.R.A.C.E. Tool</h1>
+          <p class="tool-subtitle">Tape Run Assessment and Compliance Engine</p>
+        </div>
       </div>
       <div class="project-actions">
+        <label class="theme-toggle" for="darkModeToggle">
+          <span>Dark Mode</span>
+          <input id="darkModeToggle" type="checkbox" aria-label="Turn on dark mode">
+          <span class="theme-switch" aria-hidden="true"><span></span></span>
+        </label>
         <label class="project-name">
           <span>Project name</span>
           <input id="projectName" type="text" placeholder="Kitchen, shelves, cove, media wall">
         </label>
         <div class="project-file-actions" aria-label="Save or open project">
-          <button id="saveProject" type="button" class="secondary">Save project</button>
-          <button id="openProject" type="button" class="secondary">Open project</button>
+          <button id="saveProject" type="button" class="secondary">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-save"></use></svg>
+            <span>Save project</span>
+          </button>
+          <button id="openProject" type="button" class="secondary">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-folder"></use></svg>
+            <span>Open project</span>
+          </button>
           <input id="projectFile" type="file" accept="application/json,.json" hidden>
         </div>
-        <label class="theme-toggle" for="darkModeToggle">
-          <span class="theme-toggle-copy">
-            <strong>Dark mode</strong>
-            <small>Low-light view</small>
-          </span>
-          <input id="darkModeToggle" type="checkbox" aria-label="Turn on dark mode">
-          <span class="theme-switch" aria-hidden="true"><span></span></span>
-        </label>
       </div>
     </header>
 
@@ -48,7 +114,10 @@
     <main class="app-shell">
       <section class="planner" aria-label="T.R.A.C.E. planner">
         <details class="criteria-details">
-          <summary>Acceptance Criteria</summary>
+          <summary>
+            <svg class="summary-icon" aria-hidden="true"><use href="#icon-criteria"></use></svg>
+            <span>Acceptance Criteria</span>
+          </summary>
           <dl>
             <div>
               <dt>Power box load</dt>
@@ -80,7 +149,10 @@
         <details class="mobile-results-panel" aria-label="Live answer">
           <summary class="card-summary">
             <span class="summary-title">
-              <span class="section-kicker">Live answer</span>
+              <span class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-insights"></use></svg>
+                Live answer
+              </span>
               <span id="mobileOverallStatus" class="summary-heading">Ready</span>
             </span>
             <span id="mobileOverallPill" class="pill neutral">No runs</span>
@@ -96,20 +168,32 @@
 
         <div class="toolbar" aria-label="Project controls">
           <button id="simpleExample" type="button" class="example-button secondary" aria-pressed="true">
-            <strong>Simple example</strong>
-            <span>Use when each controller and tape run has its own wire path.</span>
+            <strong>
+              <svg class="button-icon" aria-hidden="true"><use href="#icon-simple"></use></svg>
+              <span>Simple example</span>
+            </strong>
+            <span>One wire path per controller and run.</span>
           </button>
           <button id="workbookExample" type="button" class="example-button secondary" aria-pressed="false">
-            <strong>Advanced example</strong>
-            <span>Use when power or tape wire is shared before it splits.</span>
+            <strong>
+              <svg class="button-icon" aria-hidden="true"><use href="#icon-advanced"></use></svg>
+              <span>Advanced example</span>
+            </strong>
+            <span>Shared power or tape wire before a split.</span>
           </button>
-          <button id="clearAll" type="button" class="secondary" aria-pressed="false">Start blank</button>
+          <button id="clearAll" type="button" class="secondary" aria-pressed="false">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-blank"></use></svg>
+            <span>Start blank</span>
+          </button>
         </div>
 
         <details class="system-map-card collapsible-card" open>
           <summary class="card-summary">
             <span class="summary-title">
-              <span class="section-kicker">System map</span>
+              <span class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-map"></use></svg>
+                System map
+              </span>
               <span id="systemMapTitle" class="summary-heading">Live wiring diagram</span>
             </span>
             <span class="summary-action" aria-hidden="true"></span>
@@ -118,15 +202,22 @@
           <div class="system-map-shell">
             <div id="systemMap" class="system-map" aria-live="polite"></div>
             <div class="system-map-controls" aria-label="Move wiring diagram">
-              <button id="panMapLeft" type="button" class="map-pan-button" aria-label="Move diagram left">‹</button>
-              <button id="panMapRight" type="button" class="map-pan-button" aria-label="Move diagram right">›</button>
+              <button id="panMapLeft" type="button" class="map-pan-button" aria-label="Move diagram left">
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+              </button>
+              <button id="panMapRight" type="button" class="map-pan-button" aria-label="Move diagram right">
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+              </button>
             </div>
           </div>
         </details>
 
         <section id="powerFeedCard" class="setup-card" aria-labelledby="powerModeTitle">
           <div class="card-heading">
-            <p class="section-kicker">Power feed</p>
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>
+              Power feed
+            </p>
             <h2 id="powerModeTitle">How does power get to the controllers?</h2>
           </div>
 
@@ -150,7 +241,10 @@
       <aside class="results-panel" aria-label="Results">
         <div class="results-top">
           <div>
-            <p class="section-kicker">Live answer</p>
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-insights"></use></svg>
+              Live answer
+            </p>
             <h2 id="overallStatus">Ready</h2>
           </div>
           <span id="overallPill" class="pill neutral">No runs</span>
