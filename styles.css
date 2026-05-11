@@ -2640,12 +2640,19 @@ button:focus-visible {
     font-size: 28px;
   }
 
-  .theme-toggle {
+  .project-actions {
     position: static;
-    justify-self: start;
-    justify-content: flex-start;
+  }
+
+  .theme-toggle {
+    position: absolute;
+    top: 18px;
+    right: 16px;
+    z-index: 3;
+    justify-self: auto;
+    justify-content: flex-end;
     width: 126px;
     max-width: 126px;
-    margin-left: max(0px, calc(100vw - 258px));
+    margin-left: 0;
   }
 }
