@@ -17,7 +17,9 @@
       droopPerVolt: 0.17,
       currentFullReel: 1.472,
       calculatedResistance: 0.75927109974424556,
-      maxControllerFt: 32.8
+      maxInterfaceFt: 32.8,
+      dualEndRecommendedOverFt: FULL_REEL_FT,
+      maxContinuousRunFt: DUAL_END_MAX_FT
     },
     {
       id: "lumaris-tw",
@@ -26,7 +28,9 @@
       droopPerVolt: 0.308,
       currentFullReel: 1.1967,
       calculatedResistance: 0.39,
-      maxControllerFt: 49.2
+      maxInterfaceFt: 49.2,
+      dualEndRecommendedOverFt: FULL_REEL_FT,
+      maxContinuousRunFt: DUAL_END_MAX_FT
     },
     {
       id: "rania-long",
@@ -35,7 +39,9 @@
       droopPerVolt: 0.1912,
       currentFullReel: 1.715,
       calculatedResistance: 0.46,
-      maxControllerFt: 32.8
+      maxInterfaceFt: 32.8,
+      dualEndRecommendedOverFt: FULL_REEL_FT,
+      maxContinuousRunFt: DUAL_END_MAX_FT
     },
     {
       id: "rania-high",
@@ -44,7 +50,9 @@
       droopPerVolt: 0.2,
       currentFullReel: 3.02,
       calculatedResistance: 0.57,
-      maxControllerFt: 16.4
+      maxInterfaceFt: 16.4,
+      dualEndRecommendedOverFt: 11,
+      maxContinuousRunFt: FULL_REEL_FT
     }
   ];
 
@@ -363,6 +371,39 @@
     };
   }
 
+  function summarizeInterfaceTapeLimits(controllers) {
+    const limits = new Map();
+
+    controllers.forEach((controller) => {
+      if (!controller.enabled || controller.totalTapeLength <= 0) return;
+
+      const current =
+        limits.get(controller.tape.id) || {
+          tape: controller.tape,
+          totalTapeLength: 0,
+          controllerNumbers: []
+        };
+
+      current.totalTapeLength += controller.totalTapeLength;
+      current.controllerNumbers.push(controller.controllerIndex + 1);
+      limits.set(controller.tape.id, current);
+    });
+
+    return Array.from(limits.values()).map((item) => ({
+      ...item,
+      limitFt: item.tape.maxInterfaceFt,
+      overLimit: item.totalTapeLength > item.tape.maxInterfaceFt
+    }));
+  }
+
+  function interfaceTapeLimitText(limits) {
+    if (!limits.length) return "0 ft";
+
+    return limits
+      .map((item) => `${item.tape.label}: ${ft(item.totalTapeLength)} / ${ft(item.limitFt)}`)
+      .join("; ");
+  }
+
   function evaluate(inputState) {
     normalizeState(inputState);
     const issues = [];
@@ -418,6 +459,23 @@
       issues.push(issue("ok", "Power box load is okay", `${watts(powerW)} of 96 W.`));
     }
 
+    const interfaceTapeLimits = summarizeInterfaceTapeLimits(preparedControllers);
+    const interfaceLimitByTapeId = new Map(interfaceTapeLimits.map((item) => [item.tape.id, item]));
+
+    interfaceTapeLimits.forEach((limit) => {
+      if (!limit.overLimit) return;
+
+      issues.push(
+        issue(
+          "fail",
+          `${limit.tape.label} exceeds the power interface tape limit`,
+          `${ft(limit.totalTapeLength)} total across Controllers ${limit.controllerNumbers.join(
+            ", "
+          )}. ${limit.tape.label} allows ${ft(limit.limitFt)} per 96 W power interface.`
+        )
+      );
+    });
+
     const controllers = preparedControllers.map((controller) => {
       if (!controller.enabled) {
         return {
@@ -439,7 +497,7 @@
               controller.inputCurrent
           : ohmsForWire(controller.wireSizePowerToController) *
             Math.max(0, number(controller.distancePowerToController)) *
-            controller.inputCurrent;
+              controller.inputCurrent;
 
       const tapeSplitDropV =
         controller.tapeMode === "shared"
@@ -449,29 +507,21 @@
               controller.totalTapeCurrent
           : controllerDropV;
 
-      const overControllerTapeLimit = controller.totalTapeLength > controller.tape.maxControllerFt;
-      const tapeStatus = overControllerTapeLimit
-        ? { label: "Too much tape", level: "fail" }
-        : { label: "Tape length okay", level: "ok" };
-
-      if (overControllerTapeLimit) {
-        issues.push(
-          issue(
-            "fail",
-            `Controller ${controller.controllerIndex + 1} has too much tape`,
-            `${ft(controller.totalTapeLength)} entered. ${controller.tape.label} allows ${ft(
-              controller.tape.maxControllerFt
-            )} per controller.`
-          )
-        );
-      }
+      const interfaceLimit = interfaceLimitByTapeId.get(controller.tape.id);
+      const tapeStatus =
+        controller.totalTapeLength <= 0
+          ? { label: "No tape", level: "neutral" }
+          : interfaceLimit?.overLimit
+            ? { label: "Too much tape", level: "fail" }
+            : { label: "In range", level: "ok" };
 
       const runResults = controller.runs.map((run) => {
         const hasTape = run.tapeLength > 0;
         const baseDropV = tapeSplitDropV;
         const nearDistance = runDistance(controller, run);
         const nearWireSize = run.wireSizeToTapeStart;
-        const lengthLimit = run.feedBothEnds ? DUAL_END_MAX_FT : FULL_REEL_FT;
+        const dualEndRecommendedOverFt = controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT;
+        const maxContinuousRunFt = controller.tape.maxContinuousRunFt || DUAL_END_MAX_FT;
 
         let fadeAtTapeStartPct = 0;
         let fadeAtTapeEndPct = 0;
@@ -506,16 +556,35 @@
         const startStatus = startFadeBucket(fadeAtTapeStartPct, hasTape);
         const runStatus = fadeBucket(visibleRunFadePct);
 
-        if (run.tapeLength > lengthLimit) {
-          const detail = run.feedBothEnds
-            ? `${ft(run.tapeLength)} entered. Even with both ends fed, keep this continuous tape near ${ft(
-                DUAL_END_MAX_FT
-              )} or split it into separate runs.`
-            : `${ft(run.tapeLength)} entered. Feed both ends or split it into separate tape runs.`;
+        if (run.tapeLength > maxContinuousRunFt) {
+          const detail =
+            controller.tape.id === "rania-high"
+              ? `${ft(run.tapeLength)} entered. Rania High Output allows ${ft(
+                  maxContinuousRunFt
+                )} total per power interface; reduce the tape length or use another properly specified power interface.`
+              : `${ft(run.tapeLength)} entered. ${controller.tape.label} should be split into separate parallel runs when a single run is over ${ft(
+                  maxContinuousRunFt
+                )}.`;
+          issues.push(
+            issue(
+              "fail",
+              `${run.runName} is too long as one continuous tape`,
+              detail
+            )
+          );
+        } else if (run.tapeLength > dualEndRecommendedOverFt && !run.feedBothEnds) {
+          const detail =
+            controller.tape.id === "rania-high"
+              ? `${ft(run.tapeLength)} entered. Rania High Output should be fed from both ends when a run is over ${ft(
+                  dualEndRecommendedOverFt
+                )}.`
+              : `${ft(run.tapeLength)} entered. Feed both ends or split this into parallel runs when a run is over ${ft(
+                  dualEndRecommendedOverFt
+                )}.`;
           issues.push(
             issue(
               "warn",
-              `${run.runName} on Controller ${controller.controllerIndex + 1} is too long`,
+              `${run.runName} should be fed from both ends`,
               detail
             )
           );
@@ -566,7 +635,9 @@
           visibleRunFadePct,
           startStatus,
           runStatus,
-          lengthLimit
+          lengthLimit: run.feedBothEnds ? maxContinuousRunFt : dualEndRecommendedOverFt,
+          dualEndRecommendedOverFt,
+          maxContinuousRunFt
         };
       });
 
@@ -605,6 +676,8 @@
       totalWireLength: wireSummary.totalLength,
       totalWireLengthText: wireSummary.text,
       wireLengths: wireSummary.summary,
+      interfaceTapeLimits,
+      interfaceTapeLimitText: interfaceTapeLimitText(interfaceTapeLimits),
       activeControllers,
       sharedPowerDropV,
       controllers,
@@ -1218,7 +1291,7 @@
       : "";
     const modeText = run.feedBothEnds
       ? `Modeled as two ${ft(run.tapeLength / 2)} feeds from opposite ends.`
-      : `One-end feed limit: ${ft(FULL_REEL_FT)}.`;
+      : `Feed both ends when this tape run is over ${ft(controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT)}.`;
 
     return `
       <section id="controller-${controllerIndex + 1}-run-${run.runLetter}" class="run-card">
@@ -1277,7 +1350,7 @@
 
   function renderController(controller) {
     const index = controller.controllerIndex;
-    const statusText = controller.enabled ? `${ft(controller.totalTapeLength)} / ${ft(controller.tape.maxControllerFt)}` : "Disabled";
+    const statusText = controller.enabled ? `${ft(controller.totalTapeLength)} tape` : "Disabled";
     const isCollapsed = collapsedControllers.has(index);
     const body = controller.enabled
       ? `
@@ -1412,6 +1485,7 @@
       ["Power box load", watts(result.powerW)],
       ["Total current", amps(result.totalCurrent)],
       ["Total tape", ft(result.totalTapeLength)],
+      ["Tape per power interface", result.interfaceTapeLimitText],
       ["Total wire length", result.totalWireLengthText],
       ["Controllers in use", result.activeControllers],
       ["Shared power wire drop", `${fmt(result.sharedPowerDropV, 2)} V`]
