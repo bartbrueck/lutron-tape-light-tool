@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>T.R.A.C.E. Tool | Lutron Lumaris + Rania</title>
+    <script>
+      try {
+        const storedTheme = localStorage.getItem("trace-theme");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (storedTheme === "dark" || (!storedTheme && prefersDark)) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (error) {}
+    </script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightstrip&display=swap">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 4h12l2 2v14H5z"></path>
+        <path d="M8 4v6h8V4"></path>
+        <path d="M8 20v-6h8v6"></path>
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 7h7l2 2h9v10H3z"></path>
+        <path d="M3 7v12"></path>
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M18 15.5A7.5 7.5 0 0 1 8.5 6a7.7 7.7 0 1 0 9.5 9.5z"></path>
+      </symbol>
+      <symbol id="icon-criteria" viewBox="0 0 24 24">
+        <path d="M5 6h14"></path>
+        <path d="M5 12h14"></path>
+        <path d="M5 18h10"></path>
+        <path d="M16.5 16.5l1.4 1.4 3-3"></path>
+      </symbol>
+      <symbol id="icon-insights" viewBox="0 0 24 24">
+        <path d="M4 19V5"></path>
+        <path d="M4 19h16"></path>
+        <path d="M8 16v-5"></path>
+        <path d="M12 16V8"></path>
+        <path d="M16 16v-3"></path>
+      </symbol>
+      <symbol id="icon-simple" viewBox="0 0 24 24">
+        <path d="M5 12h14"></path>
+        <path d="M15 8l4 4-4 4"></path>
+        <path d="M5 9v6"></path>
+      </symbol>
+      <symbol id="icon-advanced" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M12 12H5"></path>
+        <path d="M12 12h7"></path>
+        <path d="M5 9v6"></path>
+        <path d="M19 9v6"></path>
+      </symbol>
+      <symbol id="icon-blank" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-map" viewBox="0 0 24 24">
+        <path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path>
+        <path d="M9 4v14"></path>
+        <path d="M15 6v14"></path>
+      </symbol>
+      <symbol id="icon-lightstrip" viewBox="0 0 24 24">
+        <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+        <path d="M7 9h3"></path>
+        <path d="M14 9h3"></path>
+        <path d="M7 12h10"></path>
+        <path d="M7 15h3"></path>
+        <path d="M14 15h3"></path>
+      </symbol>
+      <symbol id="icon-bolt" viewBox="0 0 24 24">
+        <path d="M13 2L4 14h7l-1 8 9-12h-7z"></path>
+      </symbol>
+      <symbol id="icon-chevron-left" viewBox="0 0 24 24">
+        <path d="M15 6l-6 6 6 6"></path>
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="M9 6l6 6-6 6"></path>
+      </symbol>
+    </svg>
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="trace-mark" aria-hidden="true">
+          <svg class="app-icon"><use href="#icon-lightstrip"></use></svg>
+        </span>
+        <div>
+          <p class="eyebrow">Lutron Lumaris + Rania</p>
+          <h1>T.R.A.C.E. Tool</h1>
+          <p class="tool-subtitle">Tape Run Assessment and Compliance Engine</p>
+          <p class="tool-description">
+            Plan your Lumaris or Rania tape light job before you install it. Enter the tape runs, choose the product,
+            and T.R.A.C.E. checks the recommended power supplies, controllers, maximum wire distances, and setup limits.
+          </p>
+          <p class="tool-assumption">
+            Assumption: this tool is based on Rania or HomeWorks Multi-Channel Wireless Controllers used with a 96 W power interface.
+          </p>
+        </div>
+      </div>
+      <div class="project-actions">
+        <label class="theme-toggle" for="darkModeToggle">
+          <span>Dark Mode</span>
+          <input id="darkModeToggle" type="checkbox" aria-label="Turn on dark mode">
+          <span class="theme-switch" aria-hidden="true"><span></span></span>
+        </label>
+        <label class="project-name">
+          <span>Project name</span>
+          <input id="projectName" type="text" placeholder="Kitchen, shelves, cove, media wall">
+        </label>
+        <div class="project-file-actions" aria-label="Save or open project">
+          <button id="saveProject" type="button" class="secondary">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-save"></use></svg>
+            <span>Save project</span>
+          </button>
+          <button id="openProject" type="button" class="secondary">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-folder"></use></svg>
+            <span>Open project</span>
+          </button>
+          <input id="projectFile" type="file" accept="application/json,.json" hidden>
+        </div>
+        <button id="viewDisclaimer" type="button" class="disclaimer-link">View disclaimer</button>
+      </div>
+    </header>
+
+    <section id="statusStrip" class="status-strip" aria-label="Live answer"></section>
+
+    <main class="app-shell">
+      <section class="planner" aria-label="T.R.A.C.E. planner">
+        <details class="criteria-details">
+          <summary>
+            <svg class="summary-icon" aria-hidden="true"><use href="#icon-criteria"></use></svg>
+            <span>Acceptance Criteria</span>
+          </summary>
+          <dl>
+            <div>
+              <dt>Power box load</dt>
+              <dd>Total load must stay under 96 W.</dd>
+            </div>
+            <div>
+              <dt>System assumption</dt>
+              <dd>This tool assumes Rania or HomeWorks Multi-Channel Wireless Controllers with a 96 W power interface.</dd>
+            </div>
+            <div>
+              <dt>Tape per power interface</dt>
+              <dd>Total tape across all enabled controllers on the same 96 W power interface must stay under the selected tape style limit.</dd>
+            </div>
+            <div>
+              <dt>Tape length</dt>
+              <dd>Lumaris and Rania Long Run should feed both ends or split above 16.4 ft. Rania High Output should feed both ends above 11 ft.</dd>
+            </div>
+            <div>
+              <dt>Suggested distances</dt>
+              <dd>Each run shows a good total wire path and a max total wire path based on the selected wire sizes and load.</dd>
+            </div>
+            <div>
+              <dt>Planned distances</dt>
+              <dd>Enter the actual power-to-controller and controller-to-tape distances to check the final placement.</dd>
+            </div>
+            <div>
+              <dt>Result ranges</dt>
+              <dd>Under 25% is good. 25-40% may be visible. Over 40% is not recommended.</dd>
+            </div>
+          </dl>
+        </details>
+
+        <details class="mobile-results-panel" aria-label="Live answer">
+          <summary class="card-summary">
+            <span class="summary-title">
+              <span class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-insights"></use></svg>
+                Live answer
+              </span>
+              <span id="mobileOverallStatus" class="summary-heading">Ready</span>
+            </span>
+            <span id="mobileOverallPill" class="pill neutral">No runs</span>
+          </summary>
+
+          <div id="mobileSummaryMetrics" class="summary-metrics"></div>
+
+          <section class="issue-section" aria-labelledby="mobileIssueTitle">
+            <h3 id="mobileIssueTitle">What to fix</h3>
+            <div id="mobileIssueList"></div>
+          </section>
+        </details>
+
+        <section id="tapeProductCard" class="setup-card" aria-labelledby="tapeProductTitle">
+          <div class="card-heading">
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-simple"></use></svg>
+              Tape product
+            </p>
+            <h2 id="tapeProductTitle">What tape product are you installing?</h2>
+          </div>
+
+          <label class="wide-field">
+            <span>Tape product</span>
+            <select id="tapeTypeSelect"></select>
+          </label>
+        </section>
+
+        <section id="tapeRunsCard" class="setup-card" aria-labelledby="tapeRunsTitle">
+          <div class="card-heading split-heading">
+            <div>
+              <p class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-simple"></use></svg>
+                Tape runs
+              </p>
+              <h2 id="tapeRunsTitle">How much tape are you installing?</h2>
+            </div>
+          </div>
+
+          <div class="run-setup-grid">
+            <label class="run-count-field">
+              <span>How many individual lighting runs?</span>
+              <div class="input-with-unit">
+                <input id="runCountInput" type="number" min="1" max="36" step="1" value="1">
+                <span>runs</span>
+              </div>
+            </label>
+            <label class="run-count-field">
+              <span>How many controllers / zones do you want?</span>
+              <div class="input-with-unit">
+                <input id="zoneCountInput" type="number" min="1" max="12" step="1" value="1">
+                <span>controllers</span>
+              </div>
+            </label>
+          </div>
+
+          <div id="tapeRuns" class="installer-run-list"></div>
+        </section>
+
+        <section id="suggestedSystemCard" class="setup-card suggested-system-card" aria-labelledby="suggestedSystemTitle">
+          <div class="card-heading">
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-map"></use></svg>
+              Suggested system
+            </p>
+            <h2 id="suggestedSystemTitle">Recommended equipment and placement ranges</h2>
+          </div>
+          <div id="suggestedSystem"></div>
+        </section>
+
+        <details class="system-map-card collapsible-card" open>
+          <summary class="card-summary">
+            <span class="summary-title">
+              <span class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-map"></use></svg>
+                System map
+              </span>
+              <span id="systemMapTitle" class="summary-heading">Live wiring diagram</span>
+            </span>
+            <span class="summary-action" aria-hidden="true"></span>
+          </summary>
+
+          <div class="system-map-shell">
+            <div id="systemMap" class="system-map" aria-live="polite"></div>
+            <div class="system-map-controls" aria-label="Move wiring diagram">
+              <button id="panMapLeft" type="button" class="map-pan-button" aria-label="Move diagram left">
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+              </button>
+              <button id="panMapRight" type="button" class="map-pan-button" aria-label="Move diagram right">
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <details id="advancedDetails" class="setup-card collapsible-card advanced-details">
+          <summary class="card-summary">
+            <span class="summary-title">
+              <span class="section-kicker with-icon">
+                <svg class="kicker-icon" aria-hidden="true"><use href="#icon-advanced"></use></svg>
+                Advanced details
+              </span>
+              <span class="summary-heading">Fine-tune wiring and controller placement</span>
+            </span>
+            <span class="summary-action" aria-hidden="true"></span>
+          </summary>
+
+        <section id="powerFeedCard" class="inner-advanced-panel" aria-labelledby="powerModeTitle">
+          <div class="card-heading">
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-bolt"></use></svg>
+              Power feed
+            </p>
+            <h2 id="powerModeTitle">Where will the power supply and controllers go?</h2>
+          </div>
+
+          <div class="segmented" role="radiogroup" aria-label="Power feed type">
+            <label>
+              <input type="radio" name="powerMode" value="separate">
+              <span>Separate wire to each controller</span>
+            </label>
+            <label>
+              <input type="radio" name="powerMode" value="shared">
+              <span>Shared wire, then split</span>
+            </label>
+          </div>
+
+          <div id="sharedPowerFields"></div>
+        </section>
+
+        <section id="controllers" class="controllers" aria-label="Controller placement"></section>
+        </details>
+      </section>
+
+      <aside class="results-panel" aria-label="Results">
+        <div class="results-top">
+          <div>
+            <p class="section-kicker with-icon">
+              <svg class="kicker-icon" aria-hidden="true"><use href="#icon-insights"></use></svg>
+              Live answer
+            </p>
+            <h2 id="overallStatus">Ready</h2>
+          </div>
+          <span id="overallPill" class="pill neutral">No runs</span>
+        </div>
+
+        <div id="summaryMetrics" class="summary-metrics"></div>
+
+        <section class="issue-section" aria-labelledby="issueTitle">
+          <h3 id="issueTitle">What to fix</h3>
+          <div id="issueList"></div>
+        </section>
+
+        <section class="reference-section" aria-label="Acceptance criteria">
+          <h3>Acceptance Criteria</h3>
+          <dl>
+            <div>
+              <dt>Power box load</dt>
+              <dd>Total load must stay under 96 W.</dd>
+            </div>
+            <div>
+              <dt>System assumption</dt>
+              <dd>This tool assumes Rania or HomeWorks Multi-Channel Wireless Controllers with a 96 W power interface.</dd>
+            </div>
+            <div>
+              <dt>Tape per power interface</dt>
+              <dd>Total tape across all enabled controllers on the same 96 W power interface must stay under the selected tape style limit.</dd>
+            </div>
+            <div>
+              <dt>Tape length</dt>
+              <dd>Lumaris and Rania Long Run should feed both ends or split above 16.4 ft. Rania High Output should feed both ends above 11 ft.</dd>
+            </div>
+            <div>
+              <dt>Suggested distances</dt>
+              <dd>Each run shows a good total wire path and a max total wire path based on the selected wire sizes and load.</dd>
+            </div>
+            <div>
+              <dt>Planned distances</dt>
+              <dd>Enter the actual power-to-controller and controller-to-tape distances to check the final placement.</dd>
+            </div>
+            <div>
+              <dt>Result ranges</dt>
+              <dd>Under 25% is good. 25-40% may be visible. Over 40% is not recommended.</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+    </main>
+
+    <div id="disclaimerModal" class="disclaimer-modal" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle" aria-describedby="disclaimerText" hidden>
+      <section class="disclaimer-dialog">
+        <p class="section-kicker">Important notice</p>
+        <h2 id="disclaimerTitle">Disclaimer</h2>
+        <div id="disclaimerText" class="disclaimer-copy">
+          <p>
+            T.R.A.C.E. is provided for general planning, estimating, and educational purposes only. It is not a substitute
+            for official product documentation, engineering review, electrical design, field verification, or compliance
+            with applicable codes and project requirements.
+          </p>
+          <p>
+            This tool was created independently of Lutron Corporation and is not affiliated with, endorsed by, sponsored
+            by, or approved by Lutron. Lutron, Lumaris, Rania, and HomeWorks are trademarks or registered trademarks of
+            their respective owners.
+          </p>
+          <p>
+            Calculations, recommendations, product assumptions, wiring guidance, power estimates, voltage-loss estimates,
+            and compliance checks may be incomplete, outdated, inaccurate, or unsuitable for a specific installation.
+            Always refer to the current official Lutron specification sheets, installation instructions, wiring diagrams,
+            power requirements, voltage requirements, load limits, and all applicable electrical and building codes before
+            purchasing, installing, or configuring any system.
+          </p>
+          <p>
+            By using this tool, you acknowledge that you are responsible for verifying all results and that you assume all
+            risk related to the use of this information. To the fullest extent permitted by law, Market Share and its
+            owners, employees, representatives, and affiliates disclaim liability for any loss, damage, injury, cost,
+            delay, code violation, product issue, installation issue, or other consequence arising from use of or reliance
+            on this tool.
+          </p>
+        </div>
+        <div class="disclaimer-actions">
+          <button id="acceptDisclaimer" type="button">I understand and accept</button>
+        </div>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
