@@ -2617,14 +2617,14 @@
     const summaryParts = [run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "Add tape length"];
 
     return `
-      <details id="controller-${run.controllerIndex + 1}-run-${run.runLetter}" class="run-card installer-run-card" open>
+      <details id="controller-${run.controllerIndex + 1}-run-${run.runLetter}" class="run-card installer-run-card" data-tape-run-index="${run.globalRunIndex}" open>
         <summary class="installer-run-summary">
           <span class="summary-title">
             <span class="section-kicker">${escapeHtml(run.defaultRunName)}</span>
             <span class="summary-heading">${escapeHtml(run.runName)}</span>
             <span class="run-summary-line">${summaryParts.map(escapeHtml).join(" · ")}</span>
           </span>
-          ${pill(run.runOverallStatus)}
+          <span class="run-status-slot">${pill(run.runOverallStatus)}</span>
           <span class="summary-action" aria-hidden="true"></span>
         </summary>
 
@@ -2702,6 +2702,24 @@
 
   function renderTapeRuns(result) {
     els.tapeRuns.innerHTML = result.tapeRunResults.map((run) => renderTapeRunCard(run, result)).join("");
+  }
+
+  function updateTapeRunCardSummaries(result) {
+    result.tapeRunResults.forEach((run) => {
+      const card = els.tapeRuns.querySelector(`[data-tape-run-index="${run.globalRunIndex}"]`);
+      if (!card) return;
+
+      const defaultName = card.querySelector("summary .section-kicker");
+      const runName = card.querySelector("summary .summary-heading");
+      const summaryLine = card.querySelector("summary .run-summary-line");
+      const statusSlot = card.querySelector("summary .run-status-slot");
+
+      card.id = `controller-${run.controllerIndex + 1}-run-${run.runLetter}`;
+      if (defaultName) defaultName.textContent = run.defaultRunName;
+      if (runName) runName.textContent = run.runName;
+      if (summaryLine) summaryLine.textContent = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "Add tape length";
+      if (statusSlot) statusSlot.innerHTML = pill(run.runOverallStatus);
+    });
   }
 
   function renderControllerRunFineTune(controller) {
@@ -3154,6 +3172,7 @@
   function refreshLiveResults() {
     const { result, recommendation } = currentRenderData();
     renderLiveResults(result, recommendation);
+    updateTapeRunCardSummaries(result);
     renderPresetButtons();
   }
 
