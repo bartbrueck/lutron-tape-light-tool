@@ -6,6 +6,7 @@
   const MAX_LIGHT_LOSS_PCT = 40;
   const HELP_RECOMMENDED_TOTAL_WIRE_DISTANCE = `Recommended total wire distance from the power supply to the tape light, with the controller located somewhere along that path. Staying at or below this distance keeps calculated light loss under ${GOOD_LIGHT_LOSS_PCT}%. Enter the actual power-to-controller and controller-to-tape distances below for a more accurate check.`;
   const HELP_MAX_TOTAL_WIRE_DISTANCE = `Maximum total wire distance from the power supply to the tape light, with the controller located somewhere along that path. This reaches ${MAX_LIGHT_LOSS_PCT}% calculated light loss, so shorter is strongly recommended. Enter the actual wire distances below to confirm the final layout.`;
+  const HELP_FAR_END_DISTANCE = "This is the back feed wire distance from the controller to the far end of the led tape.";
   const CONTROLLER_STANDBY_A = 0.01132;
   const RUN_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
   const MAX_RUNS = 12;
@@ -169,11 +170,16 @@
     ]
   };
 
-  let state = clone(simpleExample);
-  let activePreset = "simple";
+  let state = blankProject();
+  let activePreset = "blank";
   const collapsedControllers = new Set();
   let mapPan = null;
   let suppressNextMapJump = false;
+  let activeWizardStep = 1;
+  let activeReviewTab = "diagram";
+  let activeFineTuneStepId = null;
+  let currentFineTuneSteps = [];
+  let currentLiveLevel = "neutral";
 
   const els = {
     projectName: document.querySelector("#projectName"),
@@ -183,7 +189,9 @@
     tapeRuns: document.querySelector("#tapeRuns"),
     addTapeRun: document.querySelector("#addTapeRun"),
     suggestedSystem: document.querySelector("#suggestedSystem"),
+    advancedDetails: document.querySelector("#advancedDetails"),
     powerFeedCard: document.querySelector("#powerFeedCard"),
+    powerFeedGuideNav: document.querySelector("#powerFeedGuideNav"),
     sharedPowerFields: document.querySelector("#sharedPowerFields"),
     controllers: document.querySelector("#controllers"),
     saveProject: document.querySelector("#saveProject"),
@@ -192,6 +200,10 @@
     viewDisclaimer: document.querySelector("#viewDisclaimer"),
     disclaimerModal: document.querySelector("#disclaimerModal"),
     acceptDisclaimer: document.querySelector("#acceptDisclaimer"),
+    imageViewerModal: document.querySelector("#imageViewerModal"),
+    imageViewerImage: document.querySelector("#imageViewerImage"),
+    imageViewerTitle: document.querySelector("#imageViewerTitle"),
+    closeImageViewer: document.querySelector("#closeImageViewer"),
     darkModeToggle: document.querySelector("#darkModeToggle"),
     simpleExample: document.querySelector("#simpleExample"),
     workbookExample: document.querySelector("#workbookExample"),
@@ -207,7 +219,15 @@
     mobileSummaryMetrics: document.querySelector("#mobileSummaryMetrics"),
     issueList: document.querySelector("#issueList"),
     mobileIssueList: document.querySelector("#mobileIssueList"),
-    statusStrip: document.querySelector("#statusStrip")
+    issueSection: document.querySelector("#issueTitle")?.closest(".issue-section"),
+    mobileIssueSection: document.querySelector("#mobileIssueTitle")?.closest(".issue-section"),
+    livePanels: Array.from(document.querySelectorAll(".results-panel, .mobile-results-panel")),
+    statusStrip: document.querySelector("#statusStrip"),
+    wizardSteps: Array.from(document.querySelectorAll(".wizard-step")),
+    stepNextButtons: Array.from(document.querySelectorAll(".step-next")),
+    reviewTabButtons: Array.from(document.querySelectorAll("[data-review-tab]")),
+    reviewTabPanels: Array.from(document.querySelectorAll("[data-review-panel]")),
+    postWizardPanels: Array.from(document.querySelectorAll(".post-wizard-panel"))
   };
 
   function storedTheme() {
@@ -242,6 +262,231 @@
     applyTheme(els.darkModeToggle.checked ? "dark" : "light", true);
   }
 
+  function isWizardStepComplete(step) {
+    const tapeRuns = Array.isArray(state.tapeRuns) ? state.tapeRuns : [];
+    if (step === 1) {
+      return Boolean(tapeTypeById[state.tapeType]);
+    }
+    if (step === 2) {
+      return clampLightingRunCount(tapeRuns.length) >= 1 && clampZoneCount(state.zoneCount, tapeRuns.length) >= 1;
+    }
+    if (step === 3) {
+      return tapeRuns.some((run) => number(run.tapeLength) > 0);
+    }
+    if (step === 4) {
+      return isWizardStepComplete(3);
+    }
+    return false;
+  }
+
+  function availableWizardStep() {
+    if (!isWizardStepComplete(1)) return 1;
+    if (!isWizardStepComplete(2)) return 2;
+    if (!isWizardStepComplete(3)) return 3;
+    return 4;
+  }
+
+  function updateWizardSteps() {
+    const maxStep = availableWizardStep();
+    activeWizardStep = Math.min(Math.max(1, activeWizardStep), maxStep);
+
+    els.wizardSteps.forEach((stepElement) => {
+      const step = Number(stepElement.dataset.step);
+      const isUnlocked = step <= maxStep;
+      const isOpen = isUnlocked && step <= activeWizardStep;
+      const isComplete = isWizardStepComplete(step);
+      const stateLabel = stepElement.querySelector(".step-state");
+      const nextButton = stepElement.querySelector(".step-next");
+
+      stepElement.classList.toggle("is-locked", !isUnlocked);
+      stepElement.classList.toggle("is-collapsed", !isOpen);
+      stepElement.classList.toggle("is-complete", isComplete);
+      stepElement.setAttribute("aria-disabled", isUnlocked ? "false" : "true");
+
+      if (stateLabel) {
+        stateLabel.textContent = !isUnlocked ? "Locked" : !isOpen ? "Ready" : isComplete ? "Complete" : "In progress";
+      }
+      if (nextButton) {
+        nextButton.disabled = !isComplete;
+      }
+    });
+
+    const showPostWizard = activeWizardStep >= 4 && isWizardStepComplete(3);
+    els.postWizardPanels.forEach((panel) => {
+      panel.hidden = !showPostWizard;
+    });
+
+    if (activeWizardStep >= 4 && activeReviewTab === "diagram") {
+      queueMapPanUpdate();
+    }
+  }
+
+  function setReviewTab(tabName) {
+    const nextTab = tabName === "summary" ? "summary" : "diagram";
+    activeReviewTab = nextTab;
+
+    els.reviewTabButtons.forEach((button) => {
+      const isActive = button.dataset.reviewTab === nextTab;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-selected", isActive ? "true" : "false");
+      button.tabIndex = isActive ? 0 : -1;
+    });
+
+    els.reviewTabPanels.forEach((panel) => {
+      const isActive = panel.dataset.reviewPanel === nextTab;
+      panel.classList.toggle("is-active", isActive);
+      panel.hidden = !isActive;
+    });
+
+    if (nextTab === "diagram") {
+      queueMapPanUpdate();
+    }
+  }
+
+  function handleReviewTabClick(event) {
+    const button = event.target.closest("[data-review-tab]");
+    if (!button) return;
+    setReviewTab(button.dataset.reviewTab);
+  }
+
+  function handleWizardNext(event) {
+    const button = event.target.closest(".step-next");
+    if (!button) return;
+
+    const currentStep = Number(button.closest(".wizard-step")?.dataset.step || 1);
+    const requestedStep = Number(button.dataset.nextStep || currentStep + 1);
+    if (!isWizardStepComplete(currentStep)) return;
+
+    activeWizardStep = Math.min(requestedStep, availableWizardStep());
+    updateWizardSteps();
+
+    const nextStep = els.wizardSteps.find((stepElement) => Number(stepElement.dataset.step) === activeWizardStep);
+    nextStep?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function moveFineTuneTo(stepId) {
+    if (!stepId) return;
+    activeFineTuneStepId = stepId;
+    renderKeepingScroll();
+    window.setTimeout(() => scrollToFineTuneStep(stepId), 60);
+  }
+
+  function startFineTuneFlow() {
+    const { result, recommendation } = currentRenderData();
+    syncFineTuneSteps(result, recommendation);
+    if (!currentFineTuneSteps.length) return;
+
+    if (els.advancedDetails) {
+      els.advancedDetails.hidden = false;
+      els.advancedDetails.open = true;
+    }
+    moveFineTuneTo(currentFineTuneSteps[0].id);
+  }
+
+  function finishFineTuneFlow() {
+    activeFineTuneStepId = null;
+    renderKeepingScroll();
+    window.setTimeout(() => {
+      setReviewTab("diagram");
+      const target = document.querySelector("#reviewDiagramPanel");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      queueMapPanUpdate();
+    }, 60);
+  }
+
+  function launchDoneConfetti(button) {
+    const rect = button.getBoundingClientRect();
+    const originX = rect.left + rect.width / 2;
+    const originY = rect.top + rect.height / 2;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const colors = ["#1b7dd2", "#0f9f6e", "#34c759", "#f7c948", "#ff6b6b", "#7a9cff", "#ffffff"];
+    const count = reducedMotion ? 22 : 88;
+    const spread = Math.min(window.innerWidth || 900, 1100);
+    const lift = Math.min(window.innerHeight || 700, 760);
+
+    for (let index = 0; index < count; index += 1) {
+      const piece = document.createElement("span");
+      const x = (Math.random() - 0.5) * spread;
+      const y = -(80 + Math.random() * lift);
+      const drop = 90 + Math.random() * 260;
+      const rotation = (Math.random() * 900 - 450).toFixed(1);
+      const finalRotation = (Number(rotation) * 1.3).toFixed(1);
+
+      piece.className = "confetti-piece";
+      piece.style.left = `${originX}px`;
+      piece.style.top = `${originY}px`;
+      piece.style.setProperty("--confetti-x", `${x.toFixed(1)}px`);
+      piece.style.setProperty("--confetti-y", `${y.toFixed(1)}px`);
+      piece.style.setProperty("--confetti-drop", `${drop.toFixed(1)}px`);
+      piece.style.setProperty("--confetti-rotate", `${rotation}deg`);
+      piece.style.setProperty("--confetti-final-rotate", `${finalRotation}deg`);
+      piece.style.setProperty("--confetti-color", colors[index % colors.length]);
+      piece.style.animationDelay = `${Math.random() * 90}ms`;
+      document.body.append(piece);
+
+      window.setTimeout(() => piece.remove(), reducedMotion ? 900 : 1500);
+    }
+  }
+
+  function handleFineTuneAction(event) {
+    const button = event.target.closest("[data-fine-tune-action]");
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const action = button.dataset.fineTuneAction;
+    if (action === "start") {
+      startFineTuneFlow();
+      return;
+    }
+
+    if (action === "finish") {
+      finishFineTuneFlow();
+      return;
+    }
+
+    if (action === "done") {
+      const { result, recommendation } = currentRenderData();
+      const liveResult = buildLivePlan(result, recommendation);
+      currentLiveLevel = liveResult.level;
+      if (currentLiveLevel !== "ok") {
+        refreshLiveResults();
+        return;
+      }
+      launchDoneConfetti(button);
+      return;
+    }
+
+    if (!currentFineTuneSteps.length) {
+      const { result, recommendation } = currentRenderData();
+      syncFineTuneSteps(result, recommendation);
+    }
+
+    const currentIndex = fineTuneStepIndex();
+    if (currentIndex < 0) {
+      startFineTuneFlow();
+      return;
+    }
+
+    if (action === "previous") {
+      const previousStep = currentFineTuneSteps[currentIndex - 1];
+      if (previousStep) {
+        moveFineTuneTo(previousStep.id);
+      }
+      return;
+    }
+
+    if (action === "next") {
+      const nextStep = currentFineTuneSteps[currentIndex + 1];
+      if (nextStep) {
+        moveFineTuneTo(nextStep.id);
+      } else {
+        finishFineTuneFlow();
+      }
+    }
+  }
+
   function hasAcceptedDisclaimer() {
     try {
       return window.localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "accepted";
@@ -271,6 +516,45 @@
 
   function acceptDisclaimer() {
     hideDisclaimer(true);
+  }
+
+  function showImageViewer(trigger) {
+    if (!els.imageViewerModal || !els.imageViewerImage) return;
+
+    const imageSrc = trigger.dataset.zoomImage || trigger.currentSrc || trigger.src;
+    els.imageViewerImage.src = imageSrc;
+    els.imageViewerImage.alt = trigger.alt || trigger.dataset.zoomTitle || "Wiring diagram";
+    if (els.imageViewerTitle) {
+      els.imageViewerTitle.textContent = trigger.dataset.zoomTitle || "Wiring diagram";
+    }
+
+    els.imageViewerModal.hidden = false;
+    document.body.classList.add("modal-open");
+    window.requestAnimationFrame(() => els.closeImageViewer?.focus());
+  }
+
+  function hideImageViewer() {
+    if (!els.imageViewerModal) return;
+    els.imageViewerModal.hidden = true;
+    if (!els.disclaimerModal || els.disclaimerModal.hidden) {
+      document.body.classList.remove("modal-open");
+    }
+  }
+
+  function handleImageViewerTrigger(event) {
+    const trigger = event.target.closest("[data-zoom-image]");
+    if (!trigger) return;
+    if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    showImageViewer(trigger);
+  }
+
+  function handleImageViewerBackdrop(event) {
+    if (event.target === els.imageViewerModal) {
+      hideImageViewer();
+    }
   }
 
   function blankRun() {
@@ -590,6 +874,35 @@
     };
   }
 
+  function summarizeRecommendedWireLengths(recommendation) {
+    const summary = [];
+    const controllers = recommendation.powerSupplies.flatMap((supply) => supply.controllers);
+
+    controllers.forEach((controller) => {
+      const activeRuns = controller.runs.filter((run) => run.tapeLength > 0);
+      const recommendedDistances = activeRuns
+        .map((run) => number(run.distanceGuidance?.goodTotalPathFt))
+        .filter((distance) => distance > 0);
+      if (!recommendedDistances.length) return;
+
+      const segmentDistance = Math.min(...recommendedDistances) / 2;
+      addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
+
+      activeRuns.forEach((run) => {
+        addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
+        if (run.feedBothEnds) {
+          addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
+        }
+      });
+    });
+
+    return {
+      summary,
+      totalLength: summary.reduce((sum, item) => sum + item.length, 0),
+      text: wireLengthText(summary)
+    };
+  }
+
   function summarizeInterfaceTapeLimits(controllers) {
     const limitsBySupply = new Map();
 
@@ -629,6 +942,194 @@
         tapeOverLimit: item.totalTapeLength > item.tape.maxInterfaceFt,
         powerOverLimit: item.powerW > POWER_LIMIT_W
       }));
+  }
+
+  function activeRunCountForController(controller) {
+    if (!controller) return 0;
+    if (Array.isArray(controller.runResults)) {
+      return controller.runResults.filter((run) => number(run.tapeLength) > 0).length;
+    }
+    if (Array.isArray(controller.runs)) {
+      return controller.runs.filter((run) => number(run.tapeLength) > 0).length;
+    }
+    return 0;
+  }
+
+  function powerFeedControllerCount(inputState, recommendation, result = null) {
+    const assignedControllerCount = inputState.tapeRuns.reduce((maxIndex, run) => {
+      if (number(run.tapeLength) <= 0) return maxIndex;
+      return Math.max(maxIndex, Math.round(number(run.controllerIndex ?? run.zoneIndex ?? 0)) + 1);
+    }, 0);
+    const evaluatedControllerCount = result
+      ? result.controllers.filter((controller) => controller.enabled || activeRunCountForController(controller) > 0).length
+      : 0;
+
+    return Math.max(
+      1,
+      clampZoneCount(inputState.zoneCount, inputState.tapeRuns.length),
+      recommendation.controllerCount || 0,
+      assignedControllerCount,
+      evaluatedControllerCount
+    );
+  }
+
+  function fineTuneControllers(result, recommendation) {
+    const controllerCount = powerFeedControllerCount(state, recommendation, result);
+    return result.controllers.filter((controller) => controller.enabled || controller.controllerIndex < controllerCount);
+  }
+
+  function buildFineTuneSteps(result, recommendation) {
+    const controllers = fineTuneControllers(result, recommendation);
+    const steps = [];
+
+    if (controllers.length > 1) {
+      steps.push({
+        id: "power-feed",
+        type: "power-feed",
+        target: "#powerFeedCard",
+        shortLabel: "Power feed",
+        title: "Power Feed"
+      });
+    }
+
+    controllers.forEach((controller) => {
+      steps.push({
+        id: `controller-power-${controller.controllerIndex}`,
+        type: "controller-power",
+        controllerIndex: controller.controllerIndex,
+        target: controllerPowerJump(controller),
+        shortLabel: `Controller ${controller.controllerIndex + 1} power distance`,
+        title: `Controller ${controller.controllerIndex + 1} Power Distance`
+      });
+    });
+
+    controllers
+      .filter((controller) => activeRunCountForController(controller) >= 2)
+      .forEach((controller) => {
+        steps.push({
+          id: `tape-split-${controller.controllerIndex}`,
+          type: "tape-split",
+          controllerIndex: controller.controllerIndex,
+          target: `#controller-${controller.controllerIndex + 1}-tape-wiring`,
+          shortLabel: `Controller ${controller.controllerIndex + 1} tape split`,
+          title: `Controller ${controller.controllerIndex + 1} Tape Split`
+        });
+      });
+
+    controllers.forEach((controller) => {
+      controller.runResults
+        .filter((run) => number(run.tapeLength) > 0)
+        .forEach((run) => {
+          steps.push({
+            id: `tape-run-${run.globalRunIndex}`,
+            type: "tape-run",
+            controllerIndex: controller.controllerIndex,
+            runIndex: run.globalRunIndex,
+            target: runJump(controller, run),
+            shortLabel: run.runName,
+            title: `${run.runName} Tape Distance`
+          });
+        });
+    });
+
+    return steps;
+  }
+
+  function syncFineTuneSteps(result, recommendation) {
+    currentFineTuneSteps = buildFineTuneSteps(result, recommendation);
+    if (!currentFineTuneSteps.length) {
+      activeFineTuneStepId = null;
+    } else if (activeFineTuneStepId && !currentFineTuneSteps.some((step) => step.id === activeFineTuneStepId)) {
+      activeFineTuneStepId = currentFineTuneSteps[0].id;
+    }
+
+    els.advancedDetails?.classList.toggle("is-guided-fine-tune", Boolean(activeFineTuneStepId));
+  }
+
+  function fineTuneStepIndex(stepId = activeFineTuneStepId) {
+    return currentFineTuneSteps.findIndex((step) => step.id === stepId);
+  }
+
+  function fineTuneStepForSelector(selector) {
+    return currentFineTuneSteps.find((step) => step.target === selector);
+  }
+
+  function activeFineTuneStep() {
+    return currentFineTuneSteps.find((step) => step.id === activeFineTuneStepId) || null;
+  }
+
+  function guideStepClass(stepId) {
+    if (!activeFineTuneStepId) return "";
+    return stepId === activeFineTuneStepId ? "is-guide-active" : "is-guide-collapsed";
+  }
+
+  function guideStepNavMarkup(stepId) {
+    if (!activeFineTuneStepId) return "";
+
+    const index = fineTuneStepIndex(stepId);
+    if (index < 0) return "";
+
+    const previousStep = currentFineTuneSteps[index - 1];
+    const nextStep = currentFineTuneSteps[index + 1];
+    const nextLabel = nextStep ? `Next: ${escapeHtml(nextStep.shortLabel)}` : "Back to Diagram";
+    const nextButton = nextStep ? `<button type="button" data-fine-tune-action="next">${nextLabel}</button>` : "";
+    const doneButton =
+      !nextStep && currentLiveLevel === "ok"
+        ? `<button type="button" class="done-button" data-fine-tune-action="done">Done</button>`
+        : "";
+
+    return `
+      <div class="guide-step-actions">
+        <span class="guide-step-progress">Fine-tune ${index + 1} of ${currentFineTuneSteps.length}</span>
+        <div class="guide-step-buttons">
+          ${
+            previousStep
+              ? `<button type="button" class="secondary" data-fine-tune-action="previous">Previous</button>`
+              : `<button type="button" class="secondary" data-fine-tune-action="finish">Back to Diagram</button>`
+          }
+          ${nextButton}
+          ${doneButton}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPowerFeedGuideNav() {
+    if (!els.powerFeedGuideNav) return;
+    els.powerFeedGuideNav.innerHTML = currentFineTuneSteps.some((step) => step.id === "power-feed")
+      ? guideStepNavMarkup("power-feed")
+      : "";
+  }
+
+  function scrollToFineTuneStep(stepId) {
+    const step = currentFineTuneSteps.find((item) => item.id === stepId);
+    const target = step ? document.querySelector(step.target) : els.advancedDetails;
+    if (!target) return;
+
+    openDetailsForTarget(target);
+    window.setTimeout(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      highlightTarget(target);
+      const focusTarget = target.matches("input, select, textarea, button")
+        ? target
+        : target.querySelector("input, select, textarea, button");
+      focusTarget?.focus({ preventScroll: true });
+    }, 40);
+  }
+
+  function applySingleRunTapeModeDefaults(inputState, result) {
+    let changed = false;
+    result.controllers.forEach((controller) => {
+      const activeRunCount = activeRunCountForController(controller);
+      if (activeRunCount >= 2) return;
+
+      const controllerState = inputState.controllers[controller.controllerIndex];
+      if (controllerState && controllerState.tapeMode !== "direct") {
+        controllerState.tapeMode = "direct";
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   function interfaceTapeLimitText(limits) {
@@ -684,6 +1185,7 @@
         const zoneIndex = Math.min(zoneCount - 1, Math.max(0, Math.round(number(run.zoneIndex ?? 0))));
         const needsDualFeed = tapeLength > tape.dualEndRecommendedOverFt;
         const tooLong = tapeLength > tape.maxContinuousRunFt;
+        const feedBothEnds = Boolean(run.feedBothEnds);
 
         return {
           ...run,
@@ -695,7 +1197,7 @@
           zoneName: zoneLabel(zoneIndex),
           runName,
           tapeLength,
-          feedBothEnds: needsDualFeed && !tooLong ? true : Boolean(run.feedBothEnds),
+          feedBothEnds,
           tapeCurrent: currentForTapeLength(tapeLength, tape),
           needsDualFeed,
           tooLong
@@ -830,18 +1332,19 @@
       supply.controllers.forEach((controller) => {
         controller.runs = controller.runs.map((run) => {
           const guidance = distanceForSuggestedRun(tape, controller.inputCurrent, run);
-          const specLevel = run.tooLong ? "fail" : run.needsDualFeed ? "warn" : "ok";
-          const level = run.tooLong ? "fail" : "ok";
+          const dualFeedMissing = run.needsDualFeed && !run.feedBothEnds;
+          const specLevel = run.tooLong ? "fail" : dualFeedMissing ? "warn" : "ok";
+          const level = run.tooLong ? "fail" : dualFeedMissing ? "warn" : "ok";
           return {
             ...run,
             distanceGuidance: guidance,
             specStatus: {
               level: specLevel,
-              label: run.tooLong ? "Too long" : run.needsDualFeed ? "Dual feed suggested" : "In range"
+              label: run.tooLong ? "Too long" : dualFeedMissing ? "Dual feed suggested" : run.needsDualFeed ? "Dual feed ok" : "In range"
             },
             runOverallStatus: {
               level,
-              label: level === "fail" ? "Fix" : run.needsDualFeed ? "Dual feed" : "Good"
+              label: level === "fail" ? "Fix" : level === "warn" ? "Dual feed" : "Good"
             }
           };
         });
@@ -857,14 +1360,6 @@
                 tape.maxContinuousRunFt
               )}.`;
         issues.push(recommendationIssue("fail", `${run.runName} is too long as one continuous run`, detail));
-      } else if (run.needsDualFeed) {
-        issues.push(
-          recommendationIssue(
-            "warn",
-            `${run.runName} should be fed from both ends`,
-            `${ft(run.tapeLength)} entered. The suggested diagram marks this run as dual-fed.`
-          )
-        );
       }
     });
 
@@ -884,7 +1379,7 @@
             .filter((zone) => zone.runs.length)
             .map((zone) => `${zone.zoneName}: ${zone.runs.map((run) => run.runName).join(", ")}`)
             .join("; ")
-        : "No zones",
+        : "No controllers",
       needsMultipleSuppliesByTape: totalTapeLength > tape.maxInterfaceFt,
       needsMultipleSuppliesByPower: oneSupplyEstimatedW > POWER_LIMIT_W,
       groupingText: powerSupplies
@@ -1024,6 +1519,12 @@
 
   function applyRecommendedControllerDefaults(inputState, recommendation) {
     let changed = false;
+    const requiredControllerCount = clampZoneCount(recommendation.controllerCount || 1, inputState.tapeRuns.length);
+    if (inputState.zoneCount < requiredControllerCount) {
+      inputState.zoneCount = requiredControllerCount;
+      changed = true;
+    }
+
     const recommendedRuns = recommendation.powerSupplies.flatMap((supply) =>
       supply.controllers.flatMap((controller) => controller.runs)
     );
@@ -1036,13 +1537,21 @@
 
     recommendedRuns.forEach((run) => {
       const stateRun = inputState.tapeRuns[run.globalRunIndex];
-      if (!stateRun || stateRun.controllerIndexAuto === false) return;
+      if (!stateRun) return;
+      const assignmentIsAuto = stateRun.controllerIndexAuto !== false && stateRun.zoneIndexAuto !== false;
+      if (!assignmentIsAuto) return;
 
       const nextControllerIndex = Math.min(MAX_CONTROLLERS - 1, Math.max(0, Math.round(number(run.controllerIndex))));
       if (stateRun.controllerIndex !== nextControllerIndex) {
         stateRun.controllerIndex = nextControllerIndex;
         changed = true;
       }
+      if (stateRun.zoneIndex !== nextControllerIndex) {
+        stateRun.zoneIndex = nextControllerIndex;
+        changed = true;
+      }
+      stateRun.controllerIndexAuto = true;
+      stateRun.zoneIndexAuto = true;
     });
 
     recommendedControllers.forEach((controller) => {
@@ -1202,7 +1711,7 @@
         runs,
         zoneIndexes,
         zoneNames,
-        zoneLabel: zoneNames.length === 1 ? zoneNames[0] : zoneNames.length ? "Mixed zones" : "No zone",
+        zoneLabel: zoneNames.length === 1 ? zoneNames[0] : zoneNames.length ? "Mixed controllers" : "No controller",
         assignedRunCount: activeRuns.length,
         extraShortTapeLength,
         extraCurrent,
@@ -1559,7 +2068,8 @@
   }
 
   function pill(item) {
-    return `<span class="pill ${item.level}">${item.label}</span>`;
+    const safeItem = item || { label: "Ready", level: "neutral" };
+    return `<span class="pill ${safeItem.level}">${safeItem.label}</span>`;
   }
 
   function wireDistanceHelpForLabel(label) {
@@ -1568,6 +2078,9 @@
     }
     if (label === "Max Total Wire Distance") {
       return HELP_MAX_TOTAL_WIRE_DISTANCE;
+    }
+    if (label === "Distance from controller to far end" || label === "Distance from tape split to far end") {
+      return HELP_FAR_END_DISTANCE;
     }
     return "";
   }
@@ -1590,11 +2103,26 @@
     return `<span class="label-with-help">${escapeHtml(label)}${helpTooltip(helpText)}</span>`;
   }
 
+  function fieldInstruction(text) {
+    return `<p class="field-instruction">${escapeHtml(text)}</p>`;
+  }
+
   function resultChip(label, value, status) {
     if (status) {
       return `<div class="result-chip"><span class="result-label">${labelWithHelp(label)}</span>${pill(status)}<span>${value}</span></div>`;
     }
     return `<div class="result-chip"><strong>${value}</strong><span>${labelWithHelp(label)}</span></div>`;
+  }
+
+  function dualFeedThumbnail() {
+    return `<img class="dual-feed-thumb" src="assets/dual-ended-feed.png" alt="Dual-ended feed wiring example" loading="lazy" draggable="false" data-zoom-image="assets/dual-ended-feed.png" data-zoom-title="Dual-ended feed" role="button" tabindex="0">`;
+  }
+
+  function jumpPill(item, target, ariaLabel) {
+    const safeItem = item || { label: "Review", level: "warn" };
+    return `<a class="pill ${safeItem.level} jump-pill" href="${escapeHtml(target)}" data-jump="${escapeHtml(
+      target
+    )}" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(safeItem.label)}</a>`;
   }
 
   function levelRank(level) {
@@ -2061,6 +2589,7 @@
 
   function renderSuggestedSystem(recommendation, result) {
     const dualFeedRuns = result.tapeRunResults.filter((run) => run.tapeLength > 0 && run.feedBothEnds);
+    const recommendedWire = summarizeRecommendedWireLengths(recommendation);
     const materialsHtml = `
       <section class="materials-summary" aria-label="Suggested materials summary">
         <h3>Suggested Materials Summary</h3>
@@ -2068,26 +2597,20 @@
           ${resultChip("Tape light", ft(recommendation.totalTapeLength))}
           ${resultChip("Controllers", recommendation.controllerCount || 0)}
           ${resultChip("Power supplies", recommendation.powerSupplyCount || 0)}
-          ${resultChip("Low-voltage wire", result.totalWireLengthText)}
+          ${resultChip("Max recommended low-voltage wire", recommendedWire.text)}
         </div>
         <p>
           Based on ${escapeHtml(recommendation.tape.label)} with ${recommendation.controllerCount || 0} ${
-      recommendation.controllerCount === 1 ? "controller/zone" : "controllers/zones"
-    }. ${
+      recommendation.controllerCount === 1 ? "controller" : "controllers"
+    }. Low-voltage wire is estimated at ${DEFAULT_WIRE_SIZE} AWG using the max recommended distance to stay under ${
+      GOOD_LIGHT_LOSS_PCT
+    }% light loss. ${
       dualFeedRuns.length
         ? `Dual-feed runs: ${escapeHtml(dualFeedRuns.map((run) => run.runName).join(", "))}.`
         : "No dual-feed runs currently selected."
     }
         </p>
       </section>
-    `;
-    const cards = `
-      <div class="suggestion-cards">
-        ${resultChip("Power supplies", recommendation.powerSupplyCount || 0)}
-        ${resultChip("Controllers", recommendation.controllerCount || 0)}
-        ${resultChip("Total tape", ft(recommendation.totalTapeLength))}
-        ${resultChip("Tape product", recommendation.tape.label)}
-      </div>
     `;
 
     const supplyHtml = recommendation.powerSupplies
@@ -2113,50 +2636,18 @@
       )
       .join("");
 
-    const explanationHtml = recommendation.activeRunCount
-      ? `
-        <details class="recommendation-explain" open>
-          <summary>Why this recommendation?</summary>
-          <div class="explain-grid">
-            <div>
-              <span>Controller / zone assignment</span>
-              <strong>${escapeHtml(recommendation.explanation.controllerAssignmentText)}</strong>
-            </div>
-            <div>
-              <span>Runs entered</span>
-              <strong>${escapeHtml(recommendation.explanation.runLengthText)}</strong>
-            </div>
-            <div>
-              <span>Total tape</span>
-              <strong>${escapeHtml(recommendation.explanation.totalTapeText)}</strong>
-            </div>
-            <div>
-              <span>Selected tape limit</span>
-              <strong>${escapeHtml(recommendation.explanation.maxTapePerPowerSupplyText)}</strong>
-            </div>
-            <div>
-              <span>One-supply load check</span>
-              <strong>${escapeHtml(recommendation.explanation.oneSupplyLoadText)} / ${escapeHtml(
-                recommendation.explanation.powerLimitText
-              )}</strong>
-            </div>
-          </div>
-          <p>
-            ${
-              recommendation.explanation.needsMultipleSuppliesByTape || recommendation.explanation.needsMultipleSuppliesByPower
-                ? "The tool adds another power supply because the entered runs exceed the selected tape product's per-supply tape limit, the 96 W power limit, or both."
-                : "The entered runs fit within one power supply for both tape length and estimated power load."
-            }
-          </p>
-          <p><strong>Suggested grouping:</strong> ${escapeHtml(recommendation.explanation.groupingText)}</p>
-        </details>
-      `
-      : "";
-
+    const actualRunByIndex = new Map(result.tapeRunResults.map((run) => [run.globalRunIndex, run]));
     const runHtml = recommendation.powerSupplies
       .flatMap((supply) => supply.controllers.flatMap((controller) => controller.runs))
-      .map(
-        (run) => `
+      .map((run) => {
+        const actualRun = actualRunByIndex.get(run.globalRunIndex) || run;
+        const target = runJump({ controllerIndex: actualRun.controllerIndex }, actualRun);
+        const statusPill =
+          run.needsDualFeed && !actualRun.feedBothEnds
+            ? jumpPill(run.runOverallStatus, target, `Jump to ${actualRun.runName} dual-feed settings`)
+            : pill(run.runOverallStatus);
+
+        return `
           <div class="suggested-run-row ${run.runOverallStatus.level}">
             <div>
               <strong>${escapeHtml(run.runName)}</strong>
@@ -2170,16 +2661,14 @@
               <div class="suggested-row-label">${labelWithHelp("Max Total Wire Distance")}</div>
               <strong>${ft(run.distanceGuidance.maxTotalPathFt)} <small>${MAX_LIGHT_LOSS_PCT}% loss</small></strong>
             </div>
-            ${pill(run.runOverallStatus)}
+            ${statusPill}
           </div>
-        `
-      )
+        `;
+      })
       .join("");
 
     els.suggestedSystem.innerHTML = `
-      ${cards}
       ${materialsHtml}
-      ${explanationHtml}
       <div class="suggestion-layout">${supplyHtml}</div>
       <div class="suggested-run-table">${runHtml}</div>
     `;
@@ -2397,6 +2886,7 @@
 
     els.sharedPowerFields.innerHTML = `
       <div class="wire-map">
+        ${fieldInstruction("Enter the actual shared power wire distance and choose the wire gauge used before it splits to the controllers.")}
         <div class="map-node">
           <span>Power box</span>
           <strong>LU-PH3</strong>
@@ -2404,7 +2894,7 @@
         <label class="map-field">
           <span>Shared distance before the controller split</span>
           <div class="input-with-unit">
-            <input data-path="sharedPower.distance" type="number" min="0" max="500" step="0.1" value="${state.sharedPower.distance}">
+            <input class="distance-input" data-path="sharedPower.distance" type="number" min="0" max="500" step="0.1" value="${state.sharedPower.distance}">
             <span>ft</span>
           </div>
         </label>
@@ -2422,9 +2912,12 @@
 
   function renderControllerPowerMap(controller) {
     const index = controller.controllerIndex;
+    const stepId = `controller-power-${index}`;
+    const stepClass = guideStepClass(stepId);
     if (state.powerMode === "shared") {
       return `
-        <div id="controller-${index + 1}-power" class="wire-map">
+        <div id="controller-${index + 1}-power" class="wire-map guide-step ${stepClass}" data-guide-step-id="${stepId}">
+          ${fieldInstruction("Enter the actual wire distance from the power split to this controller, then choose the wire gauge.")}
           <div class="map-node">
             <span>Split</span>
             <strong>Power feed</strong>
@@ -2432,7 +2925,7 @@
           <label class="map-field">
             <span>Distance from split to controller</span>
             <div class="input-with-unit">
-              <input data-path="controllers.${index}.distanceSplitToController" type="number" min="0" max="500" step="0.1" value="${controller.distanceSplitToController}">
+              <input class="distance-input" data-path="controllers.${index}.distanceSplitToController" type="number" min="0" max="500" step="0.1" value="${controller.distanceSplitToController}">
               <span>ft</span>
             </div>
           </label>
@@ -2444,12 +2937,14 @@
             <span>Controller</span>
             <strong>${index + 1}</strong>
           </div>
+          ${guideStepNavMarkup(stepId)}
         </div>
       `;
     }
 
     return `
-      <div id="controller-${index + 1}-power" class="wire-map">
+      <div id="controller-${index + 1}-power" class="wire-map guide-step ${stepClass}" data-guide-step-id="${stepId}">
+        ${fieldInstruction("Enter the actual wire distance from the power box to this controller, then choose the wire gauge.")}
         <div class="map-node">
           <span>Power box</span>
           <strong>LU-PH3</strong>
@@ -2457,7 +2952,7 @@
         <label class="map-field">
           <span>Distance from power box to controller</span>
           <div class="input-with-unit">
-            <input data-path="controllers.${index}.distancePowerToController" type="number" min="0" max="500" step="0.1" value="${controller.distancePowerToController}">
+            <input class="distance-input" data-path="controllers.${index}.distancePowerToController" type="number" min="0" max="500" step="0.1" value="${controller.distancePowerToController}">
             <span>ft</span>
           </div>
         </label>
@@ -2469,6 +2964,7 @@
           <span>Controller</span>
           <strong>${index + 1}</strong>
         </div>
+        ${guideStepNavMarkup(stepId)}
       </div>
     `;
   }
@@ -2479,6 +2975,7 @@
 
     return `
       <div id="controller-${index + 1}-tape-split" class="wire-map">
+        ${fieldInstruction("Enter the shared control wire distance before the tape runs split, then choose the wire gauge.")}
         <div class="map-node">
           <span>Controller</span>
           <strong>${index + 1}</strong>
@@ -2486,7 +2983,7 @@
         <label class="map-field">
           <span>Shared distance before tape runs split</span>
           <div class="input-with-unit">
-            <input data-path="controllers.${index}.distanceControllerToTapeSplit" type="number" min="0" max="500" step="0.1" value="${controller.distanceControllerToTapeSplit}">
+            <input class="distance-input" data-path="controllers.${index}.distanceControllerToTapeSplit" type="number" min="0" max="500" step="0.1" value="${controller.distanceControllerToTapeSplit}">
             <span>ft</span>
           </div>
         </label>
@@ -2511,20 +3008,22 @@
       controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
     const farEndFields = run.feedBothEnds
       ? `
-        <label class="map-field">
-          <span>Distance to far end of tape</span>
-          <div class="input-with-unit">
-            <input data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
-            <span>ft</span>
-          </div>
-        </label>
-        <label class="map-field">
-          <span>Wire size to far end</span>
-          <select data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndWireSize">${optionMarkup(
-            wireSizes,
-            run.farEndWireSize
-          )}</select>
-        </label>
+        <div class="far-end-fields">
+          <label class="map-field">
+            <span>${labelWithHelp("Distance from controller to far end")}</span>
+            <div class="input-with-unit">
+              <input class="distance-input" data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
+              <span>ft</span>
+            </div>
+          </label>
+          <label class="map-field">
+            <span>Wire size to far end</span>
+            <select data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndWireSize">${optionMarkup(
+              wireSizes,
+              run.farEndWireSize
+            )}</select>
+          </label>
+        </div>
       `
       : "";
     const modeText = run.feedBothEnds
@@ -2544,14 +3043,16 @@
     )}" placeholder="Under Cabinet">
             </label>
           </div>
-          <label class="switch compact">
+          <label class="switch compact dual-feed-check">
             <input data-path="controllers.${controllerIndex}.runs.${runIndex}.feedBothEnds" type="checkbox" ${
       run.feedBothEnds ? "checked" : ""
     }>
             <span>Feed this tape from both ends</span>
+            ${dualFeedThumbnail()}
           </label>
         </div>
         <div class="wire-map run">
+          ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
           <div class="map-node">
             <span>${fromNode}</span>
             <strong>To ${escapeHtml(run.runName)}</strong>
@@ -2559,7 +3060,7 @@
           <label class="map-field">
             <span>${distanceLabel}</span>
             <div class="input-with-unit">
-              <input data-path="controllers.${controllerIndex}.runs.${runIndex}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+              <input class="distance-input" data-path="controllers.${controllerIndex}.runs.${runIndex}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
               <span>ft</span>
             </div>
           </label>
@@ -2587,8 +3088,41 @@
   }
 
   function renderTapeRunCard(run, result) {
-    const controller = result.controllers[run.controllerIndex];
+    const sourceRun = run && typeof run === "object" ? run : {};
+    const safeGlobalRunIndex = Math.max(0, Math.round(number(sourceRun.globalRunIndex ?? 0)));
+    const safeDefaultRunName = sourceRun.defaultRunName || `Tape Run ${safeGlobalRunIndex + 1}`;
+    const safeControllerIndex = Math.min(
+      MAX_CONTROLLERS - 1,
+      Math.max(0, Math.round(number(sourceRun.controllerIndex ?? 0)))
+    );
+    const controller = result.controllers[safeControllerIndex] || result.controllers[0] || {
+      tapeMode: "direct",
+      tape: tapeTypeById[state.tapeType] || tapeTypes[0]
+    };
+    run = {
+      ...blankRun(),
+      ...sourceRun,
+      controllerIndex: safeControllerIndex,
+      globalRunIndex: safeGlobalRunIndex,
+      defaultRunName: safeDefaultRunName,
+      runName: sourceRun.runName || String(sourceRun.customName || "").trim() || safeDefaultRunName,
+      runLetter: sourceRun.runLetter || RUN_NAMES[safeGlobalRunIndex] || String(safeGlobalRunIndex + 1),
+      tapeLength: Math.max(0, number(sourceRun.tapeLength)),
+      zoneIndex: Math.min(state.zoneCount - 1, Math.max(0, Math.round(number(sourceRun.zoneIndex ?? 0)))),
+      fadeAtTapeStartPct: Math.max(0, number(sourceRun.fadeAtTapeStartPct)),
+      visibleRunFadePct: Math.max(0, number(sourceRun.visibleRunFadePct)),
+      startStatus: sourceRun.startStatus || { label: "No tape", level: "neutral" },
+      runStatus: sourceRun.runStatus || { label: "No tape", level: "neutral" },
+      specStatus: sourceRun.specStatus || { label: "No tape", level: "neutral" },
+      runOverallStatus: sourceRun.runOverallStatus || { label: "Ready", level: "neutral" },
+      distanceGuidance: sourceRun.distanceGuidance || {
+        goodTotalPathFt: 0,
+        maxTotalPathFt: 0,
+        plannedTotalPathFt: 0
+      }
+    };
     const basePath = `tapeRuns.${run.globalRunIndex}`;
+    const distanceGuidance = run.distanceGuidance;
     const distancePath =
       controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
     const distanceLabel =
@@ -2601,17 +3135,19 @@
       controller.tapeMode === "shared" ? "Distance from tape split to far end" : "Distance from controller to far end";
     const farEndFields = run.feedBothEnds
       ? `
-        <label class="map-field">
-          <span>${farEndDistanceLabel}</span>
-          <div class="input-with-unit">
-            <input data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
-            <span>ft</span>
-          </div>
-        </label>
-        <label class="map-field">
-          <span>Wire size to far end</span>
-          <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
-        </label>
+        <div class="far-end-fields">
+          <label class="map-field">
+            <span>${labelWithHelp(farEndDistanceLabel)}</span>
+            <div class="input-with-unit">
+              <input class="distance-input" data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
+              <span>ft</span>
+            </div>
+          </label>
+          <label class="map-field">
+            <span>Wire size to far end</span>
+            <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
+          </label>
+        </div>
       `
       : "";
     const summaryParts = [run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "Add tape length"];
@@ -2644,9 +3180,8 @@
               </div>
             </label>
             <label>
-              <span>Controller / zone</span>
+              <span>Controller</span>
               <select data-path="${basePath}.zoneIndex">${zoneOptions(run.zoneIndex, state.zoneCount)}</select>
-              <small class="field-help">Each controller is one independently controlled zone.</small>
             </label>
             <button type="button" class="secondary compact-button" data-run-action="remove" data-run-index="${run.globalRunIndex}">
               <span>Remove run</span>
@@ -2654,24 +3189,26 @@
           </div>
 
           <div class="distance-guide">
-            ${resultChip("Recommended Total Wire Distance", `${ft(run.distanceGuidance.goodTotalPathFt)} at ${GOOD_LIGHT_LOSS_PCT}% loss`, {
+            ${resultChip("Recommended Total Wire Distance", `${ft(distanceGuidance.goodTotalPathFt)} at ${GOOD_LIGHT_LOSS_PCT}% loss`, {
               label: "Recommended",
               level: "ok"
             })}
-            ${resultChip("Max Total Wire Distance", `${ft(run.distanceGuidance.maxTotalPathFt)} at ${MAX_LIGHT_LOSS_PCT}% loss`, {
+            ${resultChip("Max Total Wire Distance", `${ft(distanceGuidance.maxTotalPathFt)} at ${MAX_LIGHT_LOSS_PCT}% loss`, {
               label: "Max",
               level: "warn"
             })}
-            ${resultChip("Planned longest path", ft(run.distanceGuidance.plannedTotalPathFt), run.startStatus)}
+            ${resultChip("Planned longest path", ft(distanceGuidance.plannedTotalPathFt), run.startStatus)}
           </div>
 
-          <label class="checkbox-line">
+          <label class="checkbox-line dual-feed-check">
             <input data-path="${basePath}.feedBothEnds" type="checkbox" ${run.feedBothEnds ? "checked" : ""}>
             <span>Feed this tape from both ends</span>
+            ${dualFeedThumbnail()}
           </label>
           ${dualSuggestion}
 
           <div class="wire-map run installer-distance-map">
+            ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
             <div class="map-node">
               <span>${controller.tapeMode === "shared" ? "Tape split" : `Controller ${run.controllerIndex + 1}`}</span>
               <strong>To tape</strong>
@@ -2679,7 +3216,7 @@
             <label class="map-field">
               <span>${distanceLabel}</span>
               <div class="input-with-unit">
-                <input data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+                <input class="distance-input" data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
                 <span>ft</span>
               </div>
             </label>
@@ -2736,6 +3273,7 @@
     const runCards = runs
       .map((run) => {
         const basePath = `tapeRuns.${run.globalRunIndex}`;
+        const stepId = `tape-run-${run.globalRunIndex}`;
         const distancePath =
           controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
         const distanceLabel =
@@ -2748,22 +3286,26 @@
           controller.tapeMode === "shared" ? "Distance from tape split to far end" : "Distance from controller to far end";
         const farEndFields = run.feedBothEnds
           ? `
-            <label class="map-field">
-              <span>${farEndDistanceLabel}</span>
-              <div class="input-with-unit">
-                <input data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
-                <span>ft</span>
-              </div>
-            </label>
-            <label class="map-field">
-              <span>Wire size to far end</span>
-              <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
-            </label>
+            <div class="far-end-fields">
+              <label class="map-field">
+                <span>${labelWithHelp(farEndDistanceLabel)}</span>
+                <div class="input-with-unit">
+                  <input class="distance-input" data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
+                  <span>ft</span>
+                </div>
+              </label>
+              <label class="map-field">
+                <span>Wire size to far end</span>
+                <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
+              </label>
+            </div>
           `
           : "";
 
         return `
-          <section id="fine-controller-${controller.controllerIndex + 1}-run-${run.globalRunIndex + 1}" class="fine-tune-run">
+          <section id="fine-controller-${controller.controllerIndex + 1}-run-${run.globalRunIndex + 1}" class="fine-tune-run guide-step ${guideStepClass(
+            stepId
+          )}" data-guide-step-id="${stepId}">
             <div class="fine-tune-run-top">
               <div>
                 <strong>${escapeHtml(run.runName)}</strong>
@@ -2772,13 +3314,15 @@
               ${pill(run.runOverallStatus)}
             </div>
             <div class="dual-feed-row">
-              <label class="checkbox-line">
+              <label class="checkbox-line dual-feed-check">
                 <input data-path="${basePath}.feedBothEnds" type="checkbox" ${run.feedBothEnds ? "checked" : ""}>
                 <span>Feed this tape from both ends</span>
+                ${dualFeedThumbnail()}
               </label>
               ${dualSuggestion}
             </div>
             <div class="wire-map run installer-distance-map">
+              ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
               <div class="map-node">
                 <span>${controller.tapeMode === "shared" ? "Tape split" : `Controller ${controller.controllerIndex + 1}`}</span>
                 <strong>To tape</strong>
@@ -2786,7 +3330,7 @@
               <label class="map-field">
                 <span>${distanceLabel}</span>
                 <div class="input-with-unit">
-                  <input data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+                  <input class="distance-input" data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
                   <span>ft</span>
                 </div>
               </label>
@@ -2807,13 +3351,17 @@
               })}
               ${resultChip("Planned longest path", `${ft(run.distanceGuidance.plannedTotalPathFt)} at ${pct(run.distanceGuidance.plannedFadePct || 0)} loss`, run.startStatus)}
             </div>
+            ${guideStepNavMarkup(stepId)}
           </section>
         `;
       })
       .join("");
+    const activeStep = activeFineTuneStep();
+    const hideFineTuneRuns =
+      Boolean(activeStep) && !(activeStep.type === "tape-run" && activeStep.controllerIndex === controller.controllerIndex);
 
     return `
-      <div class="fine-tune-runs">
+      <div class="fine-tune-runs guide-step-group ${hideFineTuneRuns ? "is-guide-collapsed" : ""}">
         <div class="fine-tune-heading">
           <strong>Tape wire distances</strong>
           <span>These start by splitting the recommended total wire distance. Override them if the job layout needs different distances.</span>
@@ -2823,14 +3371,61 @@
     `;
   }
 
+  function tapeModeOptionsMarkup(controller, index) {
+    return `
+      <div class="segmented control-wire-options" role="radiogroup" aria-label="Tape wiring type">
+        <label class="control-wire-choice">
+          <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="direct" ${
+      controller.tapeMode === "direct" ? "checked" : ""
+    }>
+          <span class="control-choice-copy">
+            <strong>No, separate wire to each tape run</strong>
+            <span>Each tape run gets its own control wire from the controller.</span>
+          </span>
+          <img
+            class="control-choice-image"
+            src="assets/separate-control.png"
+            alt="Separate control wires from wireless controller to each LED tape run"
+            data-zoom-image="assets/separate-control.png"
+            data-zoom-title="Separate wire to each tape run"
+            role="button"
+            tabindex="0"
+          >
+        </label>
+        <label class="control-wire-choice">
+          <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="shared" ${
+      controller.tapeMode === "shared" ? "checked" : ""
+    }>
+          <span class="control-choice-copy">
+            <strong>Yes, shared wire then split</strong>
+            <span>One trunk wire leaves the controller, then branches to the tape runs.</span>
+          </span>
+          <img
+            class="control-choice-image"
+            src="assets/shared-control.png"
+            alt="Shared control trunk wire that branches to LED tape runs"
+            data-zoom-image="assets/shared-control.png"
+            data-zoom-title="Shared wire, then split"
+            role="button"
+            tabindex="0"
+          >
+        </label>
+      </div>
+    `;
+  }
+
   function renderControllerPlacement(controller, recommendation) {
     const index = controller.controllerIndex;
     const isCollapsed = collapsedControllers.has(index);
     const assignedCount = controller.assignedRunCount || controller.runResults.length;
-    const shouldOpen = !isCollapsed && assignedCount > 0;
+    const guidedStep = activeFineTuneStep();
+    const isGuidedController = !guidedStep || guidedStep.controllerIndex === index;
+    const shouldOpen = !isCollapsed && isGuidedController && (assignedCount > 0 || guidedStep?.controllerIndex === index);
     const assignedText = `${assignedCount} ${assignedCount === 1 ? "run" : "runs"} assigned`;
     const statusText = controller.enabled ? `${ft(controller.totalTapeLength)} tape` : assignedText;
     const showPowerAssignment = (recommendation.powerSupplyCount || 1) > 1;
+    const showTapeSplitQuestion = activeRunCountForController(controller) >= 2;
+    const tapeSplitStepId = `tape-split-${index}`;
     const powerAssignmentField = showPowerAssignment
       ? `
         <label>
@@ -2868,29 +3463,25 @@
 
           ${renderControllerPowerMap(controller)}
 
-          <div class="advanced-card installer-advanced visible-wiring-choice">
+          ${
+            showTapeSplitQuestion
+              ? `
+          <div id="controller-${index + 1}-tape-wiring" class="advanced-card installer-advanced visible-wiring-choice guide-step ${guideStepClass(
+                tapeSplitStepId
+              )}" data-guide-step-id="${tapeSplitStepId}">
             <div class="advanced-top">
               <div class="advanced-title">
                 <strong>Do these tape runs share wire before they split?</strong>
                 <span>Choose direct wiring unless multiple runs share wire before separating.</span>
               </div>
-              <div class="segmented" role="radiogroup" aria-label="Tape wiring type">
-                <label>
-                  <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="direct" ${
-      controller.tapeMode === "direct" ? "checked" : ""
-    }>
-                  <span>No, direct to each run</span>
-                </label>
-                <label>
-                  <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="shared" ${
-      controller.tapeMode === "shared" ? "checked" : ""
-    }>
-                  <span>Yes, shared wire then split</span>
-                </label>
-              </div>
+              ${tapeModeOptionsMarkup(controller, index)}
             </div>
             ${renderTapeSplitFields(controller)}
+            ${guideStepNavMarkup(tapeSplitStepId)}
           </div>
+          `
+              : ""
+          }
 
           ${renderControllerRunFineTune(controller)}
         </div>
@@ -2902,6 +3493,10 @@
     const index = controller.controllerIndex;
     const statusText = controller.enabled ? `${ft(controller.totalTapeLength)} tape` : "Disabled";
     const isCollapsed = collapsedControllers.has(index);
+    const showTapeSplitQuestion = activeRunCountForController(controller) >= 2;
+    const tapeSplitStepId = `tape-split-${index}`;
+    const guidedStep = activeFineTuneStep();
+    const isGuidedController = !guidedStep || guidedStep.controllerIndex === index;
     const body = controller.enabled
       ? `
         <div id="controller-${index + 1}-body" class="controller-body">
@@ -2919,29 +3514,25 @@
 
           ${renderControllerPowerMap(controller)}
 
-          <div class="advanced-card">
+          ${
+            showTapeSplitQuestion
+              ? `
+          <div id="controller-${index + 1}-tape-wiring" class="advanced-card visible-wiring-choice guide-step ${guideStepClass(
+                tapeSplitStepId
+              )}" data-guide-step-id="${tapeSplitStepId}">
             <div class="advanced-top">
               <div class="advanced-title">
                 <strong>Do these tape runs share wire before they split?</strong>
                 <span>Choose direct wiring unless multiple runs share wire before separating.</span>
               </div>
-              <div class="segmented" role="radiogroup" aria-label="Tape wiring type">
-                <label>
-                  <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="direct" ${
-        controller.tapeMode === "direct" ? "checked" : ""
-      }>
-                  <span>No, direct to each run</span>
-                </label>
-                <label>
-                  <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="shared" ${
-        controller.tapeMode === "shared" ? "checked" : ""
-      }>
-                  <span>Yes, shared wire then split</span>
-                </label>
-              </div>
+              ${tapeModeOptionsMarkup(controller, index)}
             </div>
             ${renderTapeSplitFields(controller)}
+            ${guideStepNavMarkup(tapeSplitStepId)}
           </div>
+          `
+              : ""
+          }
 
           <div class="run-list">
             ${controller.runs.map((run, runIndex) => renderRun(controller, run, runIndex, controller.runResults[runIndex])).join("")}
@@ -2964,7 +3555,7 @@
 
     return `
       <details id="controller-${index + 1}" class="controller-card collapsible-card" data-controller-details="${index}" ${
-      isCollapsed ? "" : "open"
+      !isCollapsed && isGuidedController ? "open" : ""
     }>
         <summary class="controller-top controller-summary">
           <label class="switch" onclick="event.stopPropagation()">
@@ -2986,6 +3577,8 @@
   }
 
   function renderStatusStrip(result) {
+    if (!els.statusStrip) return;
+
     const urgentIssue = result.issues.find((item) => item.level === "fail") || result.issues.find((item) => item.level === "warn");
     const headline = urgentIssue ? urgentIssue.title : result.totalTapeLength > 0 ? `${ft(result.totalTapeLength)} tape` : "Live answer";
     els.statusStrip.innerHTML = `
@@ -3095,6 +3688,8 @@
 
   function renderLiveResults(result, recommendation = buildRecommendation(state)) {
     const liveResult = buildLivePlan(result, recommendation);
+    currentLiveLevel = liveResult.level;
+    setLiveAnswerPanelLevel(liveResult.level);
 
     renderStatusStrip(liveResult);
     renderRecommendedSystemMap(recommendation, result);
@@ -3132,7 +3727,8 @@
       </div>
     `;
 
-    const issuesHtml = `<div class="issue-list">${liveResult.issues
+    const fixIssues = liveResult.issues.filter((item) => item.level === "warn" || item.level === "fail");
+    const issuesHtml = `<div class="issue-list">${fixIssues
       .map(
         (item) =>
           `<div class="issue ${item.level}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(
@@ -3145,12 +3741,30 @@
     els.mobileSummaryMetrics.innerHTML = metricsHtml + totalWireLengthHtml + wireGuidanceHtml;
     els.issueList.innerHTML = issuesHtml;
     els.mobileIssueList.innerHTML = issuesHtml;
+    const hasFixes = fixIssues.length > 0;
+    if (els.issueSection) els.issueSection.hidden = !hasFixes;
+    if (els.mobileIssueSection) els.mobileIssueSection.hidden = !hasFixes;
+  }
+
+  function setLiveAnswerPanelLevel(level) {
+    const statusClass = {
+      ok: "live-status-ok",
+      warn: "live-status-warn",
+      fail: "live-status-fail",
+      neutral: "live-status-neutral"
+    }[level] || "live-status-neutral";
+    const statusClasses = ["live-status-ok", "live-status-warn", "live-status-fail", "live-status-neutral"];
+
+    els.livePanels.forEach((panel) => {
+      panel.classList.remove(...statusClasses);
+      panel.classList.add(statusClass);
+    });
   }
 
   function currentRenderData() {
     normalizeState(state);
-    const recommendation = buildRecommendation(state);
-    if (recommendation.controllerCount <= 1 && state.powerMode === "shared") {
+    let recommendation = buildRecommendation(state);
+    if (powerFeedControllerCount(state, recommendation) <= 1 && state.powerMode === "shared") {
       state.powerMode = "separate";
     }
     if (recommendation.powerSupplyCount <= 1) {
@@ -3160,9 +3774,16 @@
       });
     }
     const assignmentChanged = applyRecommendedControllerDefaults(state, recommendation);
+    if (assignmentChanged) {
+      recommendation = buildRecommendation(state);
+    }
     let result = evaluate(state);
+    const tapeModeChanged = applySingleRunTapeModeDefaults(state, result);
+    if (tapeModeChanged) {
+      result = evaluate(state);
+    }
     const distanceChanged = applyRecommendedDistanceDefaults(state, result);
-    if (assignmentChanged || distanceChanged) {
+    if (assignmentChanged || tapeModeChanged || distanceChanged) {
       result = evaluate(state);
     }
 
@@ -3171,33 +3792,72 @@
 
   function refreshLiveResults() {
     const { result, recommendation } = currentRenderData();
+    currentLiveLevel = buildLivePlan(result, recommendation).level;
+    syncFineTuneSteps(result, recommendation);
+    syncPowerFeedControls(result, recommendation);
+    syncControllerAssignmentFields();
     renderLiveResults(result, recommendation);
     updateTapeRunCardSummaries(result);
+    if (!els.controllers.contains(document.activeElement)) {
+      renderControllerPlacements(result, recommendation);
+    }
+    updateWizardSteps();
     renderPresetButtons();
+  }
+
+  function syncControllerAssignmentFields() {
+    if (els.zoneCountInput && document.activeElement !== els.zoneCountInput) {
+      els.zoneCountInput.value = state.zoneCount;
+    }
+
+    state.tapeRuns.forEach((run, index) => {
+      const select = els.tapeRuns.querySelector(`select[data-path="tapeRuns.${index}.zoneIndex"]`);
+      if (!select || document.activeElement === select) return;
+
+      const nextMarkup = zoneOptions(run.zoneIndex, state.zoneCount);
+      if (select.innerHTML !== nextMarkup) {
+        select.innerHTML = nextMarkup;
+      }
+      select.value = String(run.zoneIndex);
+    });
+  }
+
+  function syncPowerFeedControls(result, recommendation) {
+    const isPowerFeedNeeded = powerFeedControllerCount(state, recommendation, result) > 1;
+    const hideForGuide = Boolean(activeFineTuneStepId && activeFineTuneStepId !== "power-feed");
+
+    document.querySelectorAll("input[name='powerMode']").forEach((input) => {
+      input.checked = input.value === state.powerMode;
+    });
+    if (els.powerFeedCard) {
+      els.powerFeedCard.hidden = !isPowerFeedNeeded || hideForGuide;
+      els.powerFeedCard.classList.toggle("is-guide-active", activeFineTuneStepId === "power-feed");
+      els.powerFeedCard.classList.toggle("is-guide-collapsed", Boolean(activeFineTuneStepId && activeFineTuneStepId !== "power-feed"));
+    }
+    renderPowerFeedGuideNav();
   }
 
   function render() {
     const { result, recommendation } = currentRenderData();
+    currentLiveLevel = buildLivePlan(result, recommendation).level;
+    syncFineTuneSteps(result, recommendation);
 
     els.projectName.value = state.projectName;
     els.tapeTypeSelect.innerHTML = optionMarkup(tapeTypes, state.tapeType);
     els.runCountInput.value = state.tapeRuns.length;
     els.zoneCountInput.value = state.zoneCount;
-    document.querySelectorAll("input[name='powerMode']").forEach((input) => {
-      input.checked = input.value === state.powerMode;
-    });
-    if (els.powerFeedCard) {
-      els.powerFeedCard.hidden = recommendation.controllerCount <= 1;
-    }
+    syncPowerFeedControls(result, recommendation);
 
     renderSharedPowerFields();
     renderLiveResults(result, recommendation);
     renderTapeRuns(result);
+    updateWizardSteps();
     renderPresetButtons();
+    renderControllerPlacements(result, recommendation);
+  }
 
-    const visibleControllers = result.controllers.filter(
-      (controller) => controller.enabled || controller.controllerIndex < Math.max(1, recommendation.controllerCount)
-    );
+  function renderControllerPlacements(result, recommendation) {
+    const visibleControllers = fineTuneControllers(result, recommendation);
     els.controllers.innerHTML = visibleControllers.map((controller) => renderControllerPlacement(controller, recommendation)).join("");
   }
 
@@ -3231,8 +3891,11 @@
     if (match) {
       const run = state.tapeRuns[Number(match[1])];
       if (run) {
+        const controllerIndex = Math.min(MAX_CONTROLLERS - 1, Math.max(0, Math.round(number(run.zoneIndex))));
+        run.zoneIndex = controllerIndex;
+        run.controllerIndex = controllerIndex;
         run.zoneIndexAuto = false;
-        run.controllerIndexAuto = true;
+        run.controllerIndexAuto = false;
       }
       return;
     }
@@ -3274,6 +3937,7 @@
     state.tapeRuns.forEach((run, index) => {
       if (run.zoneIndexAuto !== false) {
         run.zoneIndex = suggestedZoneIndex(index, state.tapeRuns.length, state.zoneCount);
+        run.controllerIndex = run.zoneIndex;
         run.controllerIndexAuto = true;
       }
     });
@@ -3286,10 +3950,13 @@
     state.tapeRuns.forEach((run, index) => {
       if (run.zoneIndexAuto !== false) {
         run.zoneIndex = suggestedZoneIndex(index, state.tapeRuns.length, state.zoneCount);
+        run.controllerIndex = run.zoneIndex;
+        run.controllerIndexAuto = true;
       } else {
         run.zoneIndex = Math.min(state.zoneCount - 1, Math.max(0, Math.round(number(run.zoneIndex))));
+        run.controllerIndex = run.zoneIndex;
+        run.controllerIndexAuto = false;
       }
-      run.controllerIndexAuto = true;
     });
     activePreset = "custom";
     renderKeepingScroll();
@@ -3416,6 +4083,35 @@
     });
   }
 
+  function jumpToTarget(trigger, event) {
+    if (trigger.dataset.reviewTarget) {
+      setReviewTab(trigger.dataset.reviewTarget);
+    }
+
+    const guideStep = fineTuneStepForSelector(trigger.dataset.jump);
+    if (guideStep && activeFineTuneStepId !== guideStep.id) {
+      event.preventDefault();
+      activeFineTuneStepId = guideStep.id;
+      renderKeepingScroll();
+      window.setTimeout(() => scrollToFineTuneStep(guideStep.id), 60);
+      return true;
+    }
+
+    const target = document.querySelector(trigger.dataset.jump);
+    if (!target) return false;
+
+    event.preventDefault();
+    openDetailsForTarget(target);
+    window.setTimeout(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      highlightTarget(target);
+      if (target.matches("input, select, textarea, button")) {
+        target.focus({ preventScroll: true });
+      }
+    }, 40);
+    return true;
+  }
+
   function handleSystemMapJump(event) {
     if (suppressNextMapJump) {
       event.preventDefault();
@@ -3428,15 +4124,16 @@
     const trigger = event.target.closest("[data-jump]");
     if (!trigger || !els.systemMap.contains(trigger)) return;
 
-    const target = document.querySelector(trigger.dataset.jump);
-    if (!target) return;
+    jumpToTarget(trigger, event);
+  }
 
-    event.preventDefault();
-    openDetailsForTarget(target);
-    window.setTimeout(() => {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      highlightTarget(target);
-    }, 40);
+  function handlePageJump(event) {
+    if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+
+    const trigger = event.target.closest("[data-jump]");
+    if (!trigger || els.systemMap.contains(trigger)) return;
+
+    jumpToTarget(trigger, event);
   }
 
   function queueMapPanUpdate() {
@@ -3566,6 +4263,14 @@
     } else {
       collapsedControllers.add(index);
     }
+
+    if (details.open && activeFineTuneStepId) {
+      const activeStep = activeFineTuneStep();
+      if (activeStep?.controllerIndex !== index) {
+        activeFineTuneStepId = null;
+        renderKeepingScroll();
+      }
+    }
   }
 
   function blankProject() {
@@ -3647,7 +4352,7 @@
     };
   }
 
-  function saveProjectFile() {
+  async function saveProjectFile() {
     normalizeState(state);
     const payload = {
       type: PROJECT_FILE_TYPE,
@@ -3655,11 +4360,34 @@
       savedAt: new Date().toISOString(),
       state
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const fileName = `${slugifyFileName(state.projectName)}.json`;
+    const fileText = JSON.stringify(payload, null, 2);
+    const blob = new Blob([fileText], { type: "application/json" });
+
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: "T.R.A.C.E. project file",
+              accept: { "application/json": [".json"] }
+            }
+          ]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${slugifyFileName(state.projectName)}.json`;
+    link.download = fileName;
     document.body.append(link);
     link.click();
     link.remove();
@@ -3676,6 +4404,8 @@
         state = hydrateProject(JSON.parse(reader.result));
         activePreset = "custom";
         collapsedControllers.clear();
+        activeFineTuneStepId = null;
+        activeWizardStep = availableWizardStep();
         render();
       } catch (error) {
         window.alert("This project file could not be opened. Please choose a saved tape light project JSON file.");
@@ -3689,6 +4419,9 @@
   document.addEventListener("input", updateFromEvent);
   document.addEventListener("change", updateFromEvent);
   document.addEventListener("toggle", handleControllerDetailsToggle, true);
+  document.addEventListener("click", handleFineTuneAction);
+  document.addEventListener("click", handlePageJump);
+  document.addEventListener("keydown", handlePageJump);
   window.addEventListener("resize", updateMapPanControls);
   els.systemMap.addEventListener("scroll", updateMapPanControls);
   els.systemMap.addEventListener("pointerdown", handleSystemMapPointerDown);
@@ -3702,27 +4435,47 @@
   els.darkModeToggle.addEventListener("change", handleThemeToggle);
   els.addTapeRun?.addEventListener("click", addTapeRun);
   els.tapeRuns.addEventListener("click", handleTapeRunActions);
-  els.saveProject.addEventListener("click", saveProjectFile);
+  els.reviewTabButtons.forEach((button) => button.addEventListener("click", handleReviewTabClick));
+  document.querySelectorAll("[data-save-project]").forEach((button) => button.addEventListener("click", saveProjectFile));
   els.openProject.addEventListener("click", () => els.projectFile.click());
   els.projectFile.addEventListener("change", openProjectFile);
   els.viewDisclaimer?.addEventListener("click", () => showDisclaimer(true));
   els.acceptDisclaimer?.addEventListener("click", acceptDisclaimer);
+  document.addEventListener("click", handleImageViewerTrigger);
+  document.addEventListener("keydown", handleImageViewerTrigger);
+  els.closeImageViewer?.addEventListener("click", hideImageViewer);
+  els.imageViewerModal?.addEventListener("click", handleImageViewerBackdrop);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && els.imageViewerModal && !els.imageViewerModal.hidden) {
+      hideImageViewer();
+    }
+  });
+  els.stepNextButtons.forEach((button) => button.addEventListener("click", handleWizardNext));
   els.simpleExample?.addEventListener("click", () => {
     activePreset = "simple";
     collapsedControllers.clear();
+    activeFineTuneStepId = null;
     state = clone(simpleExample);
+    activeReviewTab = "diagram";
+    activeWizardStep = availableWizardStep();
     render();
   });
   els.workbookExample?.addEventListener("click", () => {
     activePreset = "advanced";
     collapsedControllers.clear();
+    activeFineTuneStepId = null;
     state = clone(workbookExample);
+    activeReviewTab = "diagram";
+    activeWizardStep = availableWizardStep();
     render();
   });
   els.clearAll?.addEventListener("click", () => {
     activePreset = "blank";
     collapsedControllers.clear();
+    activeFineTuneStepId = null;
     state = blankProject();
+    activeReviewTab = "diagram";
+    activeWizardStep = 1;
     render();
   });
 
