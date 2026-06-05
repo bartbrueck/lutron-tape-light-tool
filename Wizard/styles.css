@@ -2525,6 +2525,20 @@ button.done-button:hover {
   height: 8px;
 }
 
+.unicorn-piece {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 5001;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.75),
+    0 10px 18px rgba(16, 24, 40, 0.24);
+  transform: translate(-50%, -50%) scale(0.7);
+  animation: unicornDash 1780ms cubic-bezier(0.16, 0.72, 0.18, 1) forwards;
+}
+
 @keyframes confettiBurst {
   0% {
     opacity: 1;
@@ -2554,6 +2568,38 @@ button.done-button:hover {
   }
 }
 
+@keyframes unicornDash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55) rotate(0deg);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  48% {
+    transform:
+      translate(
+        calc(-50% + var(--unicorn-half-x)),
+        calc(-50% + var(--unicorn-half-y) + var(--unicorn-hop))
+      )
+      scale(1)
+      rotate(var(--unicorn-tilt));
+  }
+
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(-50% + var(--unicorn-x)),
+        calc(-50% + var(--unicorn-y))
+      )
+      scale(0.86)
+      rotate(var(--unicorn-final-tilt));
+  }
+}
+
 button.disclaimer-link,
 button.disclaimer-link:hover,
 button.disclaimer-link:focus {
@@ -2573,7 +2619,8 @@ button.info-dot:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .confetti-piece {
+  .confetti-piece,
+  .unicorn-piece {
     animation-duration: 650ms;
   }
 }

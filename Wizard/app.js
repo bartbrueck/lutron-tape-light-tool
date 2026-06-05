@@ -19,6 +19,7 @@
   const PROJECT_FILE_VERSION = 1;
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
+  const DONE_CELEBRATION_STORAGE_KEY = "trace-done-celebration-count";
 
   const tapeTypes = [
     {
@@ -428,6 +429,68 @@
     }
   }
 
+  function nextDoneCelebrationCount() {
+    const fallback = Number(document.documentElement.dataset.doneCelebrationCount || 0) + 1;
+
+    try {
+      const savedCount = Number(window.localStorage.getItem(DONE_CELEBRATION_STORAGE_KEY) || 0);
+      const nextCount = Number.isFinite(savedCount) ? savedCount + 1 : 1;
+      window.localStorage.setItem(DONE_CELEBRATION_STORAGE_KEY, String(nextCount));
+      document.documentElement.dataset.doneCelebrationCount = String(nextCount);
+      return nextCount;
+    } catch (error) {
+      document.documentElement.dataset.doneCelebrationCount = String(fallback);
+      return fallback;
+    }
+  }
+
+  function launchDoneUnicorns(button) {
+    const rect = button.getBoundingClientRect();
+    const originX = rect.left + rect.width / 2;
+    const originY = rect.top + rect.height / 2;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const count = reducedMotion ? 5 : 13;
+    const horizontalSpread = Math.min(window.innerWidth || 900, 980);
+    const verticalSpread = Math.min(window.innerHeight || 700, 460);
+
+    for (let index = 0; index < count; index += 1) {
+      const unicorn = document.createElement("span");
+      const direction = index % 2 === 0 ? 1 : -1;
+      const x = direction * (140 + Math.random() * horizontalSpread * 0.75);
+      const y = (Math.random() - 0.5) * verticalSpread;
+      const hop = -(40 + Math.random() * 150);
+      const size = 28 + Math.random() * 16;
+      const tilt = direction * (10 + Math.random() * 18);
+
+      unicorn.className = "unicorn-piece";
+      unicorn.textContent = "🦄";
+      unicorn.style.left = `${originX}px`;
+      unicorn.style.top = `${originY}px`;
+      unicorn.style.fontSize = `${size.toFixed(1)}px`;
+      unicorn.style.setProperty("--unicorn-x", `${x.toFixed(1)}px`);
+      unicorn.style.setProperty("--unicorn-y", `${y.toFixed(1)}px`);
+      unicorn.style.setProperty("--unicorn-half-x", `${(x * 0.52).toFixed(1)}px`);
+      unicorn.style.setProperty("--unicorn-half-y", `${(y * 0.52).toFixed(1)}px`);
+      unicorn.style.setProperty("--unicorn-hop", `${hop.toFixed(1)}px`);
+      unicorn.style.setProperty("--unicorn-tilt", `${tilt.toFixed(1)}deg`);
+      unicorn.style.setProperty("--unicorn-final-tilt", `${(tilt * -0.35).toFixed(1)}deg`);
+      unicorn.style.animationDelay = `${index * (reducedMotion ? 45 : 70)}ms`;
+      document.body.append(unicorn);
+
+      window.setTimeout(() => unicorn.remove(), reducedMotion ? 1150 : 2100);
+    }
+  }
+
+  function launchDoneCelebration(button) {
+    const count = nextDoneCelebrationCount();
+    if (count % 5 === 0) {
+      launchDoneUnicorns(button);
+      return;
+    }
+
+    launchDoneConfetti(button);
+  }
+
   function handleFineTuneAction(event) {
     const button = event.target.closest("[data-fine-tune-action]");
     if (!button) return;
@@ -454,7 +517,7 @@
         refreshLiveResults();
         return;
       }
-      launchDoneConfetti(button);
+      launchDoneCelebration(button);
       return;
     }
 
