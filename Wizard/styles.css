@@ -756,6 +756,7 @@ body.modal-open {
 
 .system-map-wire-hit,
 .system-map-tape-hit {
+  fill: none;
   stroke: transparent;
   stroke-linecap: round;
 }
@@ -769,9 +770,11 @@ body.modal-open {
 }
 
 .system-map-wire {
+  fill: none;
   stroke: var(--wire);
   stroke-width: 5;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .system-map-wire.ok,
@@ -794,6 +797,25 @@ body.modal-open {
 .system-map-tape-link:hover .system-map-tape,
 .system-map-tape-link:focus-visible .system-map-tape {
   stroke-width: 8;
+}
+
+.system-map-port {
+  fill: var(--wire);
+  stroke: var(--surface);
+  stroke-width: 2.5;
+  pointer-events: none;
+}
+
+.system-map-port.ok {
+  fill: var(--ok);
+}
+
+.system-map-port.warn {
+  fill: var(--warn);
+}
+
+.system-map-port.fail {
+  fill: var(--fail);
 }
 
 .system-map-wire-label,
@@ -1328,6 +1350,21 @@ body.modal-open {
   overflow-wrap: anywhere;
 }
 
+.map-field small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.map-field.static-field {
+  align-content: center;
+}
+
+.map-field.static-field strong {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .field-instruction {
   position: relative;
   z-index: 1;
@@ -1337,6 +1374,16 @@ body.modal-open {
   font-size: 0.9rem;
   font-weight: 920;
   line-height: 1.35;
+}
+
+.field-instruction.primary {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  font-size: 1.06rem;
+  line-height: 1.42;
 }
 
 .input-with-unit {
@@ -1395,8 +1442,12 @@ body.modal-open {
   gap: 14px;
   align-items: center;
   padding: 16px 18px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.34), transparent 54%),
+    linear-gradient(135deg, #ffe577, #fff4b8);
+  border-bottom: 1px solid color-mix(in srgb, #d69800 42%, var(--line));
+  border-left: 7px solid #ffb300;
+  color: #17202a;
 }
 
 .controller-summary {
@@ -1438,16 +1489,35 @@ body.modal-open {
 
 .controller-title strong {
   overflow-wrap: anywhere;
-  font-size: 1.02rem;
+  color: #101820;
+  font-size: 1.14rem;
+  font-weight: 950;
 }
 
 .controller-title span {
   display: block;
   max-width: 100%;
-  color: var(--muted);
+  color: #46515f;
   font-size: 0.86rem;
   font-weight: 750;
   overflow-wrap: anywhere;
+}
+
+:root[data-theme="dark"] .controller-top {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 54%),
+    linear-gradient(135deg, #7a5a11, #493a17);
+  border-bottom-color: color-mix(in srgb, #ffce4a 38%, var(--line));
+  border-left-color: #ffce4a;
+  color: #fff8dc;
+}
+
+:root[data-theme="dark"] .controller-title strong {
+  color: #fff8dc;
+}
+
+:root[data-theme="dark"] .controller-title span {
+  color: #f2d98d;
 }
 
 .controller-status {
@@ -1456,6 +1526,15 @@ body.modal-open {
   gap: 8px;
   align-items: center;
   justify-content: flex-end;
+}
+
+.controller-top .muted {
+  color: #46515f;
+  font-weight: 850;
+}
+
+:root[data-theme="dark"] .controller-top .muted {
+  color: #f2d98d;
 }
 
 .controller-actions {
@@ -3005,6 +3084,49 @@ button:focus-visible {
   grid-template-columns: 1fr;
 }
 
+.wiring-style-options.segmented {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 2px;
+  max-width: 100%;
+  width: 100%;
+}
+
+.wiring-style-options.segmented .wiring-style-choice {
+  align-items: start;
+  display: grid;
+  gap: 10px 12px;
+  grid-template-areas:
+    "radio copy"
+    "image image";
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 12px;
+}
+
+.wiring-style-options.segmented .wiring-style-choice input {
+  grid-area: radio;
+  margin-top: 3px;
+  min-height: 16px;
+  width: 16px;
+}
+
+.control-subchoice {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+}
+
+.control-subchoice strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.control-subchoice span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
 .control-wire-options.segmented {
   grid-template-columns: repeat(2, minmax(250px, 340px));
   justify-content: start;
@@ -3049,6 +3171,56 @@ button:focus-visible {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 750;
+}
+
+.wiring-style-options.segmented .control-choice-copy {
+  display: grid;
+  gap: 4px;
+  grid-area: copy;
+  line-height: 1.28;
+}
+
+.wiring-style-options.segmented .control-choice-copy strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.wiring-style-options.segmented .control-choice-copy span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.wiring-style-options.segmented .wiring-style-image {
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, #ffffff);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  cursor: zoom-in;
+  display: block;
+  grid-area: image;
+  height: 132px;
+  justify-self: stretch;
+  object-fit: contain;
+  padding: 8px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+  width: 100%;
+}
+
+.wiring-style-options.segmented .wiring-style-image:hover,
+.wiring-style-options.segmented .wiring-style-image:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 12px 30px rgba(27, 125, 210, 0.18);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.series-run-setup {
+  display: contents;
 }
 
 .control-wire-options.segmented .control-choice-image {
@@ -3150,12 +3322,6 @@ button:focus-visible {
   border-color: color-mix(in srgb, var(--line) 82%, var(--accent));
   background: var(--field-tint);
   box-shadow: var(--shadow-soft);
-}
-
-.controller-top {
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--panel) 78%, var(--surface)), var(--panel)),
-    var(--panel);
 }
 
 .switch.compact,
@@ -3811,6 +3977,19 @@ button:focus-visible {
   line-height: 1.4;
 }
 
+.review-panel-heading .max-distance-note {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #d8a900 55%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #fff3a8 70%, var(--surface));
+  color: color-mix(in srgb, #4f3b00 88%, var(--ink));
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
 .review-diagram-actions {
   display: flex;
   justify-content: flex-end;
@@ -4171,6 +4350,7 @@ button:focus-visible {
     width: 100%;
   }
 
+  .wiring-style-options.segmented,
   .control-wire-options.segmented {
     grid-template-columns: 1fr;
     width: 100%;
@@ -4180,6 +4360,7 @@ button:focus-visible {
     height: clamp(118px, 32vw, 148px);
   }
 
+  .wiring-style-options.segmented .wiring-style-image,
   .control-wire-options.segmented .control-choice-image {
     height: clamp(118px, 32vw, 148px);
   }

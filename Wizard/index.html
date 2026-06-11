@@ -14,7 +14,7 @@
       } catch (error) {}
     </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightstrip&display=swap">
-    <link rel="stylesheet" href="styles.css?v=wizard-steps-23">
+    <link rel="stylesheet" href="styles.css?v=wizard-steps-40">
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true" focusable="false">
@@ -97,7 +97,7 @@
           <p class="tool-subtitle">Tape Run Assessment and Compliance Engine</p>
           <p class="tool-description">
             Plan your Lumaris or Rania tape light job before you install it. Enter the tape runs, choose the product,
-            and T.R.A.C.E. checks the recommended power supplies, controllers, maximum wire distances, and setup limits.
+            and T.R.A.C.E. checks the recommended power supplies, controllers, power wire limits, control wire limits, and setup limits.
           </p>
         </div>
       </div>
@@ -154,11 +154,11 @@
             </div>
             <div>
               <dt>Suggested distances</dt>
-              <dd>Each run shows a good total wire path and a max total wire path based on the selected wire sizes and load.</dd>
+              <dd>Each controller is checked with voltage-drop math across the actual power path and control path. Installed control wire footage is shown for ordering, but Good / Review / Fix is based on the electrical path to the tape.</dd>
             </div>
             <div>
               <dt>Planned distances</dt>
-              <dd>Enter the actual power-to-controller and controller-to-tape distances to check the final placement.</dd>
+              <dd>Enter the actual power-to-controller distance and controller-to-tape control wire distance to check the final placement.</dd>
             </div>
             <div>
               <dt>Result ranges</dt>
@@ -308,7 +308,7 @@
               <section id="reviewDiagramPanel" class="review-tab-panel is-active" role="tabpanel" aria-labelledby="reviewDiagramTab" data-review-panel="diagram">
                 <div class="review-panel-heading">
                   <strong>Live wiring diagram</strong>
-                  <span>The wire lengths shown are the max recommended distances to stay under 25% light loss. Enter exact field distances in Advanced to confirm the final layout.</span>
+                  <span class="max-distance-note">Wire lengths shown are suggested starting values. Final status is calculated from voltage drop along the actual power and control wire path.</span>
                 </div>
                 <div class="system-map-shell">
                   <div id="systemMap" class="system-map" aria-live="polite"></div>
@@ -331,7 +331,7 @@
               <section id="reviewSummaryPanel" class="review-tab-panel" role="tabpanel" aria-labelledby="reviewSummaryTab" data-review-panel="summary" hidden>
                 <div class="review-panel-heading">
                   <strong>Materials and run summary</strong>
-                  <span>Review the suggested parts, groupings, and max wire distances.</span>
+                  <span>Review the suggested parts, groupings, table references, and calculated voltage-drop path checks.</span>
                 </div>
                 <div id="suggestedSystem"></div>
               </section>
@@ -451,11 +451,11 @@
             </div>
             <div>
               <dt>Suggested distances</dt>
-              <dd>Each run shows a good total wire path and a max total wire path based on the selected wire sizes and load.</dd>
+              <dd>Each controller is checked with voltage-drop math across the actual power path and control path. Installed control wire footage is shown for ordering, but Good / Review / Fix is based on the electrical path to the tape.</dd>
             </div>
             <div>
               <dt>Planned distances</dt>
-              <dd>Enter the actual power-to-controller and controller-to-tape distances to check the final placement.</dd>
+              <dd>Enter the actual power-to-controller distance and controller-to-tape control wire distance to check the final placement.</dd>
             </div>
             <div>
               <dt>Result ranges</dt>
@@ -514,6 +514,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=wizard-steps-23"></script>
+    <script src="app.js?v=wizard-steps-40"></script>
   </body>
 </html>

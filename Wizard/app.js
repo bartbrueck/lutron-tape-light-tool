@@ -4,8 +4,8 @@
   const POWER_LIMIT_W = 96;
   const GOOD_LIGHT_LOSS_PCT = 25;
   const MAX_LIGHT_LOSS_PCT = 40;
-  const HELP_RECOMMENDED_TOTAL_WIRE_DISTANCE = `Recommended total wire distance from the power supply to the tape light, with the controller located somewhere along that path. Staying at or below this distance keeps calculated light loss under ${GOOD_LIGHT_LOSS_PCT}%. Enter the actual power-to-controller and controller-to-tape distances below for a more accurate check.`;
-  const HELP_MAX_TOTAL_WIRE_DISTANCE = `Maximum total wire distance from the power supply to the tape light, with the controller located somewhere along that path. This reaches ${MAX_LIGHT_LOSS_PCT}% calculated light loss, so shorter is strongly recommended. Enter the actual wire distances below to confirm the final layout.`;
+  const HELP_MAX_POWER_WIRE_DISTANCE = "Reference power wire distance from the Lutron table for the selected tape load and wire gauge. Final Good / Review / Fix status is calculated from voltage drop across the actual power and control wire path.";
+  const HELP_MAX_CONTROL_WIRE_DISTANCE = "Reference control wire path distance from the Lutron table. The tool checks voltage drop along the shared trunk, branches, jumpers, and back-feed paths instead of treating installed control wire as one simple total.";
   const HELP_FAR_END_DISTANCE = "This is the back feed wire distance from the controller to the far end of the led tape.";
   const CONTROLLER_STANDBY_A = 0.01132;
   const RUN_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
@@ -14,7 +14,11 @@
   const MAX_ZONES = 12;
   const MAX_CONTROLLERS = 12;
   const MAX_CONTROLLERS_PER_POWER_SUPPLY = 3;
-  const DEFAULT_WIRE_SIZE = 16;
+  const DEFAULT_POWER_WIRE_SIZE = 16;
+  const DEFAULT_CONTROL_WIRE_SIZE = 22;
+  const DEFAULT_WIRING_STYLE = "series";
+  const POWER_WIRE_SIZES = [20, 16, 14, 12];
+  const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
   const THEME_STORAGE_KEY = "trace-theme";
@@ -85,7 +89,44 @@
     26: 0.08162
   };
 
-  const wireSizes = Object.keys(awgOhmsPerFt).map(Number);
+  const cableSpecTables = {
+    "lumaris-tw": [
+      { min: 0, max: 4.1, power: { 20: 24, 16: 65, 14: 103, 12: 164 }, control: { 12: 684, 14: 430, 16: 270, 18: 169, 22: 67 } },
+      { min: 4.2, max: 8.2, power: { 20: 12, 16: 33, 14: 52, 12: 83 }, control: { 12: 342, 14: 215, 16: 135, 18: 85, 22: 33 } },
+      { min: 8.3, max: 12.3, power: { 20: 8, 16: 22, 14: 35, 12: 56 }, control: { 12: 228, 14: 143, 16: 90, 18: 56, 22: 22 } },
+      { min: 12.4, max: 16.4, power: { 20: 6, 16: 16, 14: 26, 12: 42 }, control: { 12: 171, 14: 107, 16: 67, 18: 42, 22: 16 } },
+      { min: 16.5, max: 20.5, power: { 20: 5, 16: 13, 14: 21, 12: 33 }, control: { 12: 273, 14: 172, 16: 108, 18: 68, 22: 26 } },
+      { min: 20.6, max: 24.6, power: { 20: 4, 16: 11, 14: 17, 12: 28 }, control: { 12: 228, 14: 143, 16: 90, 18: 56, 22: 22 } },
+      { min: 24.7, max: 28.7, power: { 20: 3, 16: 9, 14: 15, 12: 24 }, control: { 12: 195, 14: 122, 16: 77, 18: 48, 22: 19 } },
+      { min: 28.8, max: 32.8, power: { 20: 3, 16: 8, 14: 13, 12: 21 }, control: { 12: 171, 14: 107, 16: 67, 18: 42, 22: 16 } },
+      { min: 32.9, max: 36.9, power: { 20: 2, 16: 7, 14: 11, 12: 18 }, control: { 12: 230, 14: 144, 16: 91, 18: 57, 22: 22 } },
+      { min: 37.0, max: 41.0, power: { 20: 2, 16: 6, 14: 10, 12: 17 }, control: { 12: 205, 14: 128, 16: 81, 18: 50, 22: 20 } },
+      { min: 41.1, max: 45.1, power: { 20: 2, 16: 6, 14: 9, 12: 15 }, control: { 12: 187, 14: 118, 16: 74, 18: 46, 22: 18 } },
+      { min: 45.2, max: 49.2, power: { 20: 2, 16: 5, 14: 8, 12: 14 }, control: { 12: 171, 14: 107, 16: 67, 18: 42, 22: 16 } }
+    ],
+    "lumaris-rgb-tw": [
+      { min: 0, max: 4.1, power: { 20: 36, 16: 96, 14: 153, 12: 244 }, control: { 12: 1004, 14: 633, 16: 397, 18: 251, 22: 99 } },
+      { min: 4.2, max: 8.2, power: { 20: 18, 16: 48, 14: 77, 12: 123 }, control: { 12: 504, 14: 317, 16: 199, 18: 125, 22: 49 } },
+      { min: 8.3, max: 12.3, power: { 20: 12, 16: 32, 14: 52, 12: 83 }, control: { 12: 335, 14: 211, 16: 132, 18: 83, 22: 33 } },
+      { min: 12.4, max: 16.4, power: { 20: 9, 16: 24, 14: 39, 12: 62 }, control: { 12: 252, 14: 158, 16: 99, 18: 62, 22: 24 } },
+      { min: 16.5, max: 20.5, power: { 20: 5, 16: 13, 14: 21, 12: 33 }, control: { 12: 273, 14: 172, 16: 108, 18: 68, 22: 26 } },
+      { min: 20.6, max: 24.6, power: { 20: 4, 16: 11, 14: 17, 12: 28 }, control: { 12: 228, 14: 143, 16: 90, 18: 56, 22: 22 } },
+      { min: 24.7, max: 28.7, power: { 20: 3, 16: 9, 14: 15, 12: 24 }, control: { 12: 195, 14: 122, 16: 77, 18: 48, 22: 19 } },
+      { min: 28.8, max: 32.8, power: { 20: 3, 16: 8, 14: 13, 12: 21 }, control: { 12: 171, 14: 107, 16: 67, 18: 42, 22: 16 } }
+    ],
+    "rania-high": [
+      { min: 0, max: 4, power: { 20: 15, 16: 40, 14: 64, 12: 102 }, control: { 12: 417, 14: 262, 16: 165, 18: 103, 22: 41 } },
+      { min: 4.1, max: 8, power: { 20: 7, 16: 20, 14: 32, 12: 51 }, control: { 12: 209, 14: 131, 16: 82, 18: 52, 22: 20 } },
+      { min: 8.1, max: 11, power: { 20: 10, 16: 28, 14: 44, 12: 70 }, control: { 12: 287, 14: 180, 16: 113, 18: 71, 22: 28 } },
+      { min: 11.1, max: 16.4, power: { 20: 7, 16: 18, 14: 29, 12: 47 }, control: { 12: 385, 14: 242, 16: 152, 18: 95, 22: 37 } }
+    ],
+    "rania-long": [
+      { min: 0, max: 8, power: { 20: 14, 16: 38, 14: 61, 12: 97 }, control: { 12: 393, 14: 247, 16: 155, 18: 97, 22: 38 } },
+      { min: 8.1, max: 16.4, power: { 20: 7, 16: 18, 14: 29, 12: 47 }, control: { 12: 385, 14: 242, 16: 152, 18: 95, 22: 37 } },
+      { min: 16.5, max: 24, power: { 20: 4, 16: 12, 14: 20, 12: 32 }, control: { 12: 263, 14: 165, 16: 104, 18: 65, 22: 25 } },
+      { min: 24.1, max: 32.8, power: { 20: 3, 16: 9, 14: 15, 12: 23 }, control: { 12: 193, 14: 121, 16: 76, 18: 48, 22: 19 } }
+    ]
+  };
 
   const simpleExample = {
     projectName: "",
@@ -95,7 +136,7 @@
     sharedPower: {
       distance: 0,
       distanceAuto: true,
-      wireSize: DEFAULT_WIRE_SIZE
+      wireSize: DEFAULT_POWER_WIRE_SIZE
     },
     tapeRuns: [
       {
@@ -114,7 +155,7 @@
         ...blankController(),
         distancePowerToController: 20,
         distancePowerToControllerAuto: true,
-        wireSizePowerToController: DEFAULT_WIRE_SIZE
+        wireSizePowerToController: DEFAULT_POWER_WIRE_SIZE
       },
       blankController(),
       blankController()
@@ -129,7 +170,7 @@
     sharedPower: {
       distance: 5,
       distanceAuto: true,
-      wireSize: DEFAULT_WIRE_SIZE
+      wireSize: DEFAULT_POWER_WIRE_SIZE
     },
     tapeRuns: [
       {
@@ -160,11 +201,11 @@
         ...blankController(),
         distanceSplitToController: 15,
         distanceSplitToControllerAuto: true,
-        wireSizeSplitToController: DEFAULT_WIRE_SIZE,
+        wireSizeSplitToController: DEFAULT_POWER_WIRE_SIZE,
         tapeMode: "shared",
         distanceControllerToTapeSplit: 2,
         distanceControllerToTapeSplitAuto: true,
-        wireSizeControllerToTapeSplit: DEFAULT_WIRE_SIZE
+        wireSizeControllerToTapeSplit: DEFAULT_CONTROL_WIRE_SIZE
       },
       blankController(),
       blankController()
@@ -631,12 +672,18 @@
       distanceControllerToTapeStartAuto: true,
       distanceSplitToTapeStart: 0,
       distanceSplitToTapeStartAuto: true,
-      wireSizeToTapeStart: DEFAULT_WIRE_SIZE,
+      distancePreviousToTapeStart: 0,
+      distancePreviousToTapeStartAuto: true,
+      seriesBranchIndex: 0,
+      seriesBranchIndexAuto: true,
+      seriesPosition: 0,
+      seriesPositionAuto: true,
+      wireSizeToTapeStart: DEFAULT_CONTROL_WIRE_SIZE,
       tapeLength: 0,
       feedBothEnds: false,
       farEndDistance: 0,
       farEndDistanceAuto: true,
-      farEndWireSize: DEFAULT_WIRE_SIZE
+      farEndWireSize: DEFAULT_CONTROL_WIRE_SIZE
     };
   }
 
@@ -649,14 +696,15 @@
       powerSupplyIndexAuto: true,
       distancePowerToController: 0,
       distancePowerToControllerAuto: true,
-      wireSizePowerToController: DEFAULT_WIRE_SIZE,
+      wireSizePowerToController: DEFAULT_POWER_WIRE_SIZE,
       distanceSplitToController: 0,
       distanceSplitToControllerAuto: true,
-      wireSizeSplitToController: DEFAULT_WIRE_SIZE,
+      wireSizeSplitToController: DEFAULT_POWER_WIRE_SIZE,
+      wiringStyle: DEFAULT_WIRING_STYLE,
       tapeMode: "direct",
       distanceControllerToTapeSplit: 0,
       distanceControllerToTapeSplitAuto: true,
-      wireSizeControllerToTapeSplit: DEFAULT_WIRE_SIZE,
+      wireSizeControllerToTapeSplit: DEFAULT_CONTROL_WIRE_SIZE,
       extraShortTapeLength: 0,
       runs: [blankRun()]
     };
@@ -669,6 +717,84 @@
   function number(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function normalizePowerWireSize(value) {
+    const requested = Number(value);
+    if (POWER_WIRE_SIZES.includes(requested)) return requested;
+    return DEFAULT_POWER_WIRE_SIZE;
+  }
+
+  function normalizeControlWireSize(value) {
+    return DEFAULT_CONTROL_WIRE_SIZE;
+  }
+
+  function normalizeWiringStyle(value) {
+    return WIRING_STYLES.includes(value) ? value : DEFAULT_WIRING_STYLE;
+  }
+
+  function controllerWiringStyle(controller) {
+    return normalizeWiringStyle(controller?.wiringStyle);
+  }
+
+  function controllerUsesTapeSplit(controller) {
+    const style = controllerWiringStyle(controller);
+    return style === "series-parallel" || (style === "parallel" && controller?.tapeMode === "shared");
+  }
+
+  function isSeriesWiring(controller) {
+    const style = controllerWiringStyle(controller);
+    return style === "series" || style === "series-parallel";
+  }
+
+  function supportsSeriesParallel(controller) {
+    return activeRunCountForController(controller) >= 3;
+  }
+
+  function controlCableConductorCount(tapeOrId = state.tapeType) {
+    const tapeId = typeof tapeOrId === "string" ? tapeOrId : tapeOrId?.id;
+    if (tapeId === "lumaris-rgb-tw") return 6;
+    if (tapeId === "lumaris-tw") return 3;
+    return 4;
+  }
+
+  function controlCableLabel(tapeOrId = state.tapeType, wireSize = DEFAULT_CONTROL_WIRE_SIZE) {
+    return `${controlCableConductorCount(tapeOrId)}-conductor ${normalizeControlWireSize(wireSize)} AWG control wire`;
+  }
+
+  function controlCableShortLabel(tapeOrId = state.tapeType, wireSize = DEFAULT_CONTROL_WIRE_SIZE) {
+    return `${controlCableConductorCount(tapeOrId)}C / ${normalizeControlWireSize(wireSize)} AWG`;
+  }
+
+  function cableSpecRow(tapeOrId, tapeLengthFt) {
+    const tapeId = typeof tapeOrId === "string" ? tapeOrId : tapeOrId?.id;
+    const rows = cableSpecTables[tapeId] || [];
+    const length = Math.max(0, number(tapeLengthFt));
+    return rows.find((row) => length >= row.min && length <= row.max) || rows[rows.length - 1] || null;
+  }
+
+  function powerCableLimitForGauge(row, wireSize) {
+    if (!row) return 0;
+    const normalizedWireSize = normalizePowerWireSize(wireSize);
+    if (row.power[normalizedWireSize]) return row.power[normalizedWireSize];
+    return row.power[16] || 0;
+  }
+
+  function powerCableLimitFt(tapeOrId, tapeLengthFt, wireSize) {
+    return powerCableLimitForGauge(cableSpecRow(tapeOrId, tapeLengthFt), wireSize);
+  }
+
+  function controlCableLimitFt(tapeOrId, tapeLengthFt, wireSize = DEFAULT_CONTROL_WIRE_SIZE) {
+    const row = cableSpecRow(tapeOrId, tapeLengthFt);
+    return row?.control?.[DEFAULT_CONTROL_WIRE_SIZE] || 0;
+  }
+
+  function cableDistanceStatus(distanceFt, limitFt, hasTape) {
+    if (!hasTape) return { label: "No tape", level: "neutral" };
+    if (!limitFt) return { label: "Review spec", level: "warn" };
+    const distance = Math.max(0, number(distanceFt));
+    if (distance > limitFt) return { label: "Over spec", level: "fail" };
+    return { label: "In range", level: "ok" };
   }
 
   function clampRunCount(value) {
@@ -703,16 +829,17 @@
         typeof sourceSharedPower.distanceAuto === "boolean"
           ? sourceSharedPower.distanceAuto
           : number(sourceSharedPower.distance) <= 0,
-      wireSize: DEFAULT_WIRE_SIZE,
+      wireSize: DEFAULT_POWER_WIRE_SIZE,
       ...sourceSharedPower
     };
+    targetState.sharedPower.wireSize = normalizePowerWireSize(targetState.sharedPower.wireSize);
     targetState.controllers = Array.isArray(targetState.controllers) ? targetState.controllers : [];
     while (targetState.controllers.length < MAX_CONTROLLERS) {
       targetState.controllers.push(blankController());
     }
     targetState.controllers = targetState.controllers.slice(0, MAX_CONTROLLERS).map((controller) => {
       const source = controller && typeof controller === "object" ? controller : {};
-      return {
+      const normalizedController = {
         ...blankController(),
         ...source,
         powerSupplyIndex: Math.min(MAX_CONTROLLERS - 1, Math.max(0, Math.round(number(source.powerSupplyIndex ?? 0)))),
@@ -733,6 +860,12 @@
             ? source.distanceControllerToTapeSplitAuto
             : number(source.distanceControllerToTapeSplit) <= 0
       };
+      normalizedController.wireSizePowerToController = normalizePowerWireSize(normalizedController.wireSizePowerToController);
+      normalizedController.wireSizeSplitToController = normalizePowerWireSize(normalizedController.wireSizeSplitToController);
+      normalizedController.wireSizeControllerToTapeSplit = normalizeControlWireSize(normalizedController.wireSizeControllerToTapeSplit);
+      normalizedController.wiringStyle = normalizeWiringStyle(normalizedController.wiringStyle);
+      normalizedController.tapeMode = normalizedController.tapeMode === "shared" ? "shared" : "direct";
+      return normalizedController;
     });
 
     if (!hasTopLevelTapeRuns) {
@@ -792,10 +925,21 @@
           typeof source.distanceSplitToTapeStartAuto === "boolean"
             ? source.distanceSplitToTapeStartAuto
             : number(source.distanceSplitToTapeStart) <= 0,
-        wireSizeToTapeStart: Number(source.wireSizeToTapeStart || DEFAULT_WIRE_SIZE),
+        distancePreviousToTapeStart: Math.max(0, number(source.distancePreviousToTapeStart)),
+        distancePreviousToTapeStartAuto:
+          typeof source.distancePreviousToTapeStartAuto === "boolean"
+            ? source.distancePreviousToTapeStartAuto
+            : number(source.distancePreviousToTapeStart) <= 0,
+        seriesBranchIndex: Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(source.seriesBranchIndex ?? 0)))),
+        seriesBranchIndexAuto:
+          typeof source.seriesBranchIndexAuto === "boolean" ? source.seriesBranchIndexAuto : true,
+        seriesPosition: Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(source.seriesPosition ?? index)))),
+        seriesPositionAuto:
+          typeof source.seriesPositionAuto === "boolean" ? source.seriesPositionAuto : true,
+        wireSizeToTapeStart: normalizeControlWireSize(source.wireSizeToTapeStart),
         farEndDistanceAuto:
           typeof source.farEndDistanceAuto === "boolean" ? source.farEndDistanceAuto : number(source.farEndDistance) <= 0,
-        farEndWireSize: Number(source.farEndWireSize || source.wireSizeToTapeStart || DEFAULT_WIRE_SIZE),
+        farEndWireSize: normalizeControlWireSize(source.farEndWireSize || source.wireSizeToTapeStart),
         defaultRunName: `Tape Run ${index + 1}`
       };
     });
@@ -863,7 +1007,57 @@
     return `Controller ${index + 1}`;
   }
 
+  function seriesBranchKey(controller, run) {
+    return controllerWiringStyle(controller) === "series-parallel"
+      ? Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(run.seriesBranchIndex ?? 0))))
+      : 0;
+  }
+
+  function orderedSeriesGroups(controller) {
+    const runs = (controller.runResults || controller.runs || []).filter((run) => number(run.tapeLength) > 0);
+    const groups = new Map();
+    runs.forEach((run) => {
+      const key = seriesBranchKey(controller, run);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(run);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([branchIndex, branchRuns]) => ({
+        branchIndex,
+        runs: branchRuns.sort(
+          (a, b) =>
+            Math.round(number(a.seriesPosition ?? a.globalRunIndex ?? 0)) -
+              Math.round(number(b.seriesPosition ?? b.globalRunIndex ?? 0)) ||
+            Math.round(number(a.globalRunIndex ?? 0)) - Math.round(number(b.globalRunIndex ?? 0))
+        )
+      }));
+  }
+
+  function orderedSeriesBranch(controller, run) {
+    const key = seriesBranchKey(controller, run);
+    return orderedSeriesGroups(controller).find((group) => group.branchIndex === key)?.runs || [run];
+  }
+
+  function seriesRunIndex(controller, run) {
+    const branchRuns = orderedSeriesBranch(controller, run);
+    const runIndex = branchRuns.findIndex((item) => item.globalRunIndex === run.globalRunIndex);
+    return runIndex >= 0 ? runIndex : 0;
+  }
+
   function runDistance(controller, run) {
+    const style = controllerWiringStyle(controller);
+    if (style === "series") {
+      return seriesRunIndex(controller, run) === 0
+        ? Math.max(0, number(run.distanceControllerToTapeStart))
+        : Math.max(0, number(run.distancePreviousToTapeStart));
+    }
+    if (style === "series-parallel") {
+      return seriesRunIndex(controller, run) === 0
+        ? Math.max(0, number(run.distanceSplitToTapeStart))
+        : Math.max(0, number(run.distancePreviousToTapeStart));
+    }
     return controller.tapeMode === "shared"
       ? Math.max(0, number(run.distanceSplitToTapeStart))
       : Math.max(0, number(run.distanceControllerToTapeStart));
@@ -890,10 +1084,27 @@
     });
   }
 
+  function addControlWireLength(summary, tape, wireSize, distanceFt) {
+    const length = Math.max(0, number(distanceFt));
+    if (length <= 0) return;
+
+    const label = controlCableLabel(tape, wireSize);
+    const existing = summary.find((item) => item.label === label);
+    if (existing) {
+      existing.length += length;
+      return;
+    }
+
+    summary.push({
+      label,
+      length
+    });
+  }
+
   function wireLengthText(summary) {
     const parts = summary
       .filter((item) => item.length > 0)
-      .map((item) => `${ft(item.length)} of ${item.wireSize} AWG`);
+      .map((item) => `${ft(item.length)} of ${item.label || `${item.wireSize} AWG`}`);
 
     if (!parts.length) return "0 ft";
     if (parts.length === 1) return parts[0];
@@ -901,68 +1112,53 @@
   }
 
   function summarizeWireLengths(inputState, controllers) {
-    const summary = [];
+    const powerSummary = [];
+    const controlSummary = [];
     const activeControllers = controllers.filter((controller) => controller.enabled);
 
     if (inputState.powerMode === "shared" && activeControllers.length) {
-      addWireLength(summary, inputState.sharedPower.wireSize, inputState.sharedPower.distance);
+      addWireLength(powerSummary, inputState.sharedPower.wireSize, inputState.sharedPower.distance);
     }
 
     activeControllers.forEach((controller) => {
       if (inputState.powerMode === "shared") {
-        addWireLength(summary, controller.wireSizeSplitToController, controller.distanceSplitToController);
+        addWireLength(powerSummary, controller.wireSizeSplitToController, controller.distanceSplitToController);
       } else {
-        addWireLength(summary, controller.wireSizePowerToController, controller.distancePowerToController);
+        addWireLength(powerSummary, controller.wireSizePowerToController, controller.distancePowerToController);
       }
 
       const activeTapeRuns = controller.runs.filter((run) => run.tapeLength > 0);
-      if (controller.tapeMode === "shared" && activeTapeRuns.length) {
-        addWireLength(summary, controller.wireSizeControllerToTapeSplit, controller.distanceControllerToTapeSplit);
+      if (controllerUsesTapeSplit(controller) && activeTapeRuns.length) {
+        addControlWireLength(
+          controlSummary,
+          controller.tape,
+          controller.wireSizeControllerToTapeSplit,
+          controller.distanceControllerToTapeSplit
+        );
       }
 
       activeTapeRuns.forEach((run) => {
         const nearDistance = runDistance(controller, run);
-        addWireLength(summary, run.wireSizeToTapeStart, nearDistance);
+        addControlWireLength(controlSummary, controller.tape, run.wireSizeToTapeStart, nearDistance);
 
         if (run.feedBothEnds) {
-          addWireLength(summary, run.farEndWireSize || run.wireSizeToTapeStart, run.farEndDistance || nearDistance);
+          addControlWireLength(controlSummary, controller.tape, run.farEndWireSize || run.wireSizeToTapeStart, run.farEndDistance || nearDistance);
         }
       });
     });
 
-    return {
-      summary,
-      totalLength: summary.reduce((sum, item) => sum + item.length, 0),
-      text: wireLengthText(summary)
-    };
-  }
-
-  function summarizeRecommendedWireLengths(recommendation) {
-    const summary = [];
-    const controllers = recommendation.powerSupplies.flatMap((supply) => supply.controllers);
-
-    controllers.forEach((controller) => {
-      const activeRuns = controller.runs.filter((run) => run.tapeLength > 0);
-      const recommendedDistances = activeRuns
-        .map((run) => number(run.distanceGuidance?.goodTotalPathFt))
-        .filter((distance) => distance > 0);
-      if (!recommendedDistances.length) return;
-
-      const segmentDistance = Math.min(...recommendedDistances) / 2;
-      addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
-
-      activeRuns.forEach((run) => {
-        addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
-        if (run.feedBothEnds) {
-          addWireLength(summary, DEFAULT_WIRE_SIZE, segmentDistance);
-        }
-      });
-    });
+    const summary = [...powerSummary, ...controlSummary];
 
     return {
       summary,
+      powerSummary,
+      controlSummary,
       totalLength: summary.reduce((sum, item) => sum + item.length, 0),
-      text: wireLengthText(summary)
+      totalPowerLength: powerSummary.reduce((sum, item) => sum + item.length, 0),
+      totalControlLength: controlSummary.reduce((sum, item) => sum + item.length, 0),
+      text: wireLengthText(summary),
+      powerText: wireLengthText(powerSummary),
+      controlText: wireLengthText(controlSummary)
     };
   }
 
@@ -1184,11 +1380,22 @@
     let changed = false;
     result.controllers.forEach((controller) => {
       const activeRunCount = activeRunCountForController(controller);
-      if (activeRunCount >= 2) return;
-
       const controllerState = inputState.controllers[controller.controllerIndex];
+
+      if (activeRunCount >= 2) {
+        if (activeRunCount < 3 && controllerState?.wiringStyle === "series-parallel") {
+          controllerState.wiringStyle = DEFAULT_WIRING_STYLE;
+          changed = true;
+        }
+        return;
+      }
+
       if (controllerState && controllerState.tapeMode !== "direct") {
         controllerState.tapeMode = "direct";
+        changed = true;
+      }
+      if (controllerState && controllerState.wiringStyle !== DEFAULT_WIRING_STYLE) {
+        controllerState.wiringStyle = DEFAULT_WIRING_STYLE;
         changed = true;
       }
     });
@@ -1207,24 +1414,38 @@
     return issue(level, title, detail);
   }
 
-  function distanceForSuggestedRun(tape, controllerCurrent, run) {
+  function distanceForSuggestedRun(tape, controllerCurrent, run, controllerTapeLength = run.tapeLength) {
     if (run.tapeLength <= 0) {
       return {
         goodTotalPathFt: 0,
         maxTotalPathFt: 0,
+        plannedPowerCableFt: 0,
+        plannedControlCableFt: 0,
+        powerSpecLimitFt: 0,
+        controlSpecLimitFt: 0,
+        powerWireSize: DEFAULT_POWER_WIRE_SIZE,
+        controlWireSize: DEFAULT_CONTROL_WIRE_SIZE,
         status: { label: "No tape", level: "neutral" }
       };
     }
 
     const branchCurrent = run.feedBothEnds ? run.tapeCurrent / 2 : run.tapeCurrent;
-    const powerDropPerFt = ohmsForWire(DEFAULT_WIRE_SIZE) * controllerCurrent;
-    const tapeDropPerFt = ohmsForWire(DEFAULT_WIRE_SIZE) * branchCurrent;
+    const powerDropPerFt = ohmsForWire(DEFAULT_POWER_WIRE_SIZE) * controllerCurrent;
+    const tapeDropPerFt = ohmsForWire(DEFAULT_CONTROL_WIRE_SIZE) * branchCurrent;
     const fadePctPerFt = Math.max(powerDropPerFt, tapeDropPerFt) * tape.droopPerVolt * 100;
+    const powerSpecLimitFt = powerCableLimitFt(tape, controllerTapeLength, DEFAULT_POWER_WIRE_SIZE);
+    const controlSpecLimitFt = controlCableLimitFt(tape, controllerTapeLength || run.tapeLength, DEFAULT_CONTROL_WIRE_SIZE);
 
     if (fadePctPerFt <= 0) {
       return {
         goodTotalPathFt: 0,
         maxTotalPathFt: 0,
+        plannedPowerCableFt: 0,
+        plannedControlCableFt: 0,
+        powerSpecLimitFt,
+        controlSpecLimitFt,
+        powerWireSize: DEFAULT_POWER_WIRE_SIZE,
+        controlWireSize: DEFAULT_CONTROL_WIRE_SIZE,
         status: { label: "No tape", level: "neutral" }
       };
     }
@@ -1232,6 +1453,12 @@
     return {
       goodTotalPathFt: GOOD_LIGHT_LOSS_PCT / fadePctPerFt,
       maxTotalPathFt: MAX_LIGHT_LOSS_PCT / fadePctPerFt,
+      plannedPowerCableFt: 0,
+      plannedControlCableFt: 0,
+      powerSpecLimitFt,
+      controlSpecLimitFt,
+      powerWireSize: DEFAULT_POWER_WIRE_SIZE,
+      controlWireSize: DEFAULT_CONTROL_WIRE_SIZE,
       status: { label: "Good", level: "ok" }
     };
   }
@@ -1394,7 +1621,7 @@
       supply.totalCurrent = supply.controllers.reduce((sum, controller) => sum + controller.inputCurrent, 0);
       supply.controllers.forEach((controller) => {
         controller.runs = controller.runs.map((run) => {
-          const guidance = distanceForSuggestedRun(tape, controller.inputCurrent, run);
+          const guidance = distanceForSuggestedRun(tape, controller.inputCurrent, run, controller.totalTapeLength);
           const dualFeedMissing = run.needsDualFeed && !run.feedBothEnds;
           const specLevel = run.tooLong ? "fail" : dualFeedMissing ? "warn" : "ok";
           const level = run.tooLong ? "fail" : dualFeedMissing ? "warn" : "ok";
@@ -1502,11 +1729,121 @@
     return Math.max(0, number(controller.distancePowerToController));
   }
 
+  function seriesPathToRun(controller, run) {
+    const branchRuns = orderedSeriesBranch(controller, run);
+    const runIndex = seriesRunIndex(controller, run);
+    return branchRuns.slice(0, runIndex + 1).reduce((sum, branchRun) => sum + runDistance(controller, branchRun), 0);
+  }
+
   function runTapeDistance(controller, run) {
+    const style = controllerWiringStyle(controller);
+    if (style === "series") return seriesPathToRun(controller, run);
+    if (style === "series-parallel") {
+      return Math.max(0, number(controller.distanceControllerToTapeSplit)) + seriesPathToRun(controller, run);
+    }
+
     const nearDistance = runDistance(controller, run);
     return controller.tapeMode === "shared"
       ? Math.max(0, number(controller.distanceControllerToTapeSplit)) + nearDistance
       : nearDistance;
+  }
+
+  function farEndControlDistance(controller, run) {
+    const farEndDistance = Math.max(0, number(run.farEndDistance || runDistance(controller, run)));
+    if (controllerWiringStyle(controller) === "series-parallel") {
+      return Math.max(0, number(controller.distanceControllerToTapeSplit)) + farEndDistance;
+    }
+    return controller.tapeMode === "shared"
+      ? Math.max(0, number(controller.distanceControllerToTapeSplit)) + farEndDistance
+      : farEndDistance;
+  }
+
+  function runControlCableDistance(controller, run) {
+    const nearPath = runTapeDistance(controller, run);
+    if (!run.feedBothEnds) return nearPath;
+    return nearPath + farEndControlDistance(controller, run);
+  }
+
+  function controllerControlCableDistance(controller) {
+    const style = controllerWiringStyle(controller);
+    if (style === "series" || style === "series-parallel") {
+      const groups = orderedSeriesGroups(controller);
+      const sharedSplitDistance =
+        style === "series-parallel" && groups.length
+          ? Math.max(0, number(controller.distanceControllerToTapeSplit))
+          : 0;
+      const branchDistance = groups.reduce(
+        (sum, group) => sum + group.runs.reduce((branchSum, run) => branchSum + runDistance(controller, run), 0),
+        0
+      );
+      const farEndDistance = groups.reduce(
+        (sum, group) =>
+          sum +
+          group.runs.reduce((branchSum, run) => {
+            if (!run.feedBothEnds) return branchSum;
+            return branchSum + Math.max(0, number(run.farEndDistance || runDistance(controller, run)));
+          }, 0),
+        0
+      );
+      return sharedSplitDistance + branchDistance + farEndDistance;
+    }
+
+    const activeRuns = controller.runs.filter((run) => run.tapeLength > 0);
+    const sharedDistance =
+      controller.tapeMode === "shared" && activeRuns.length
+        ? Math.max(0, number(controller.distanceControllerToTapeSplit))
+        : 0;
+    const branchDistance = activeRuns.reduce((sum, run) => {
+      const nearDistance = runDistance(controller, run);
+      const farDistance = run.feedBothEnds ? Math.max(0, number(run.farEndDistance || nearDistance)) : 0;
+      return sum + nearDistance + farDistance;
+    }, 0);
+
+    return sharedDistance + branchDistance;
+  }
+
+  function controllerControlWireSize(controller) {
+    return DEFAULT_CONTROL_WIRE_SIZE;
+  }
+
+  function controllerPowerWireSize(inputState, controller) {
+    if (inputState.powerMode !== "shared") return normalizePowerWireSize(controller.wireSizePowerToController);
+    return Math.max(
+      normalizePowerWireSize(inputState.sharedPower.wireSize),
+      normalizePowerWireSize(controller.wireSizeSplitToController)
+    );
+  }
+
+  function controlDropBeforeRun(controller, run, controllerDropV) {
+    const style = controllerWiringStyle(controller);
+    if (style !== "series" && style !== "series-parallel") {
+      return style === "parallel" && controller.tapeMode === "shared"
+        ? controllerDropV +
+            ohmsForWire(controller.wireSizeControllerToTapeSplit) *
+              Math.max(0, number(controller.distanceControllerToTapeSplit)) *
+              controller.totalTapeCurrent
+        : controllerDropV;
+    }
+
+    let dropV = controllerDropV;
+    const branchRuns = orderedSeriesBranch(controller, run);
+    const runIndex = seriesRunIndex(controller, run);
+
+    if (style === "series-parallel") {
+      dropV +=
+        ohmsForWire(controller.wireSizeControllerToTapeSplit) *
+        Math.max(0, number(controller.distanceControllerToTapeSplit)) *
+        controller.totalTapeCurrent;
+    }
+
+    branchRuns.slice(0, runIndex).forEach((branchRun, segmentIndex) => {
+      const downstreamCurrent = branchRuns
+        .slice(segmentIndex)
+        .reduce((sum, downstreamRun) => sum + Math.max(0, number(downstreamRun.tapeCurrent)), 0);
+      dropV += ohmsForWire(branchRun.wireSizeToTapeStart) * runDistance(controller, branchRun) * downstreamCurrent;
+    });
+
+    return dropV;
   }
 
   function plannedRunPathDistance(inputState, controller, run) {
@@ -1515,12 +1852,7 @@
 
     if (!run.feedBothEnds) return nearPath;
 
-    const farEndDistance = Math.max(0, number(run.farEndDistance || runDistance(controller, run)));
-    const farTapeDistance =
-      controller.tapeMode === "shared"
-        ? Math.max(0, number(controller.distanceControllerToTapeSplit)) + farEndDistance
-        : farEndDistance;
-    return Math.max(nearPath, powerDistance + farTapeDistance);
+    return Math.max(nearPath, powerDistance + farEndControlDistance(controller, run));
   }
 
   function runDistanceGuidance(inputState, controller, run, totalCurrent) {
@@ -1529,6 +1861,13 @@
         goodTotalPathFt: 0,
         maxTotalPathFt: 0,
         plannedTotalPathFt: 0,
+        plannedPowerCableFt: 0,
+        plannedControlCableFt: 0,
+        plannedControlPathFt: 0,
+        powerSpecLimitFt: 0,
+        controlSpecLimitFt: 0,
+        powerWireSize: DEFAULT_POWER_WIRE_SIZE,
+        controlWireSize: DEFAULT_CONTROL_WIRE_SIZE,
         status: { label: "No tape", level: "neutral" }
       };
     }
@@ -1542,7 +1881,7 @@
       coefficients.push(ohmsForWire(controller.wireSizePowerToController) * controller.inputCurrent);
     }
 
-    if (controller.tapeMode === "shared") {
+    if (controllerUsesTapeSplit(controller)) {
       coefficients.push(ohmsForWire(controller.wireSizeControllerToTapeSplit) * controller.totalTapeCurrent);
     }
 
@@ -1555,6 +1894,15 @@
 
     const fadePctPerFt = Math.max(...coefficients, 0) * controller.tape.droopPerVolt * 100;
     const plannedTotalPathFt = plannedRunPathDistance(inputState, controller, run);
+    const plannedPowerCableFt = controllerPowerDistance(inputState, controller);
+    const plannedControlCableFt = controllerControlCableDistance(controller);
+    const plannedControlPathFt = run.feedBothEnds
+      ? Math.max(runTapeDistance(controller, run), farEndControlDistance(controller, run))
+      : runTapeDistance(controller, run);
+    const powerWireSize = controllerPowerWireSize(inputState, controller);
+    const controlWireSize = controllerControlWireSize(controller);
+    const powerSpecLimitFt = powerCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, powerWireSize);
+    const controlSpecLimitFt = controlCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, controlWireSize);
     const goodTotalPathFt = fadePctPerFt > 0 ? GOOD_LIGHT_LOSS_PCT / fadePctPerFt : 0;
     const maxTotalPathFt = fadePctPerFt > 0 ? MAX_LIGHT_LOSS_PCT / fadePctPerFt : 0;
     const plannedFadePct = fadePctPerFt * plannedTotalPathFt;
@@ -1563,6 +1911,13 @@
       goodTotalPathFt,
       maxTotalPathFt,
       plannedTotalPathFt,
+      plannedPowerCableFt,
+      plannedControlCableFt,
+      plannedControlPathFt,
+      powerSpecLimitFt,
+      controlSpecLimitFt,
+      powerWireSize,
+      controlWireSize,
       plannedFadePct,
       status: startFadeBucket(plannedFadePct, run.tapeLength > 0)
     };
@@ -1572,9 +1927,13 @@
     return Math.max(0, Math.round(number(value) * 10) / 10);
   }
 
-  function setAutoDistance(target, valueKey, autoKey, value) {
+  function floorDistance(value) {
+    return Math.max(0, Math.floor((number(value) + 0.0000001) * 10) / 10);
+  }
+
+  function setAutoDistance(target, valueKey, autoKey, value, options = {}) {
     if (!target || target[autoKey] === false) return false;
-    const nextValue = roundDistance(value);
+    const nextValue = options.rounding === "floor" ? floorDistance(value) : roundDistance(value);
     if (Math.abs(number(target[valueKey]) - nextValue) < 0.05) return false;
     target[valueKey] = nextValue;
     return true;
@@ -1634,52 +1993,142 @@
     return changed;
   }
 
+  function applySeriesPositionDefaults(inputState) {
+    let changed = false;
+
+    inputState.controllers.forEach((controller, controllerIndex) => {
+      if (!isSeriesWiring(controller)) return;
+
+      const runs = inputState.tapeRuns
+        .map((run, globalRunIndex) => ({ run, globalRunIndex }))
+        .filter(({ run }) => Math.round(number(run.controllerIndex ?? run.zoneIndex ?? 0)) === controllerIndex && number(run.tapeLength) > 0);
+
+      if (!runs.length) return;
+
+      const wiringStyle = controllerWiringStyle(controller);
+      const orderedRuns = runs.sort((a, b) => a.globalRunIndex - b.globalRunIndex);
+
+      if (wiringStyle === "series-parallel") {
+        orderedRuns.forEach(({ run }, runIndex) => {
+          if (run.seriesBranchIndexAuto === false) return;
+          const nextBranchIndex = Math.floor(runIndex / 2);
+          if (run.seriesBranchIndex !== nextBranchIndex) {
+            run.seriesBranchIndex = nextBranchIndex;
+            changed = true;
+          }
+        });
+      } else {
+        orderedRuns.forEach(({ run }) => {
+          if (run.seriesBranchIndexAuto === false) return;
+          if (run.seriesBranchIndex !== 0) {
+            run.seriesBranchIndex = 0;
+            changed = true;
+          }
+        });
+      }
+
+      const groups = new Map();
+      orderedRuns.forEach((item) => {
+        const branchIndex = wiringStyle === "series-parallel"
+          ? Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(item.run.seriesBranchIndex ?? 0))))
+          : 0;
+        if (!groups.has(branchIndex)) groups.set(branchIndex, []);
+        groups.get(branchIndex).push(item);
+      });
+
+      groups.forEach((groupRuns) => {
+        groupRuns
+          .sort((a, b) => a.globalRunIndex - b.globalRunIndex)
+          .forEach(({ run }, position) => {
+            if (run.seriesPositionAuto === false) return;
+            if (run.seriesPosition !== position) {
+              run.seriesPosition = position;
+              changed = true;
+            }
+          });
+      });
+    });
+
+    return changed;
+  }
+
   function applyRecommendedDistanceDefaults(inputState, result) {
     const activeControllers = result.controllers.filter((controller) => controller.enabled);
-    const activeRuns = result.tapeRunResults.filter((run) => run.tapeLength > 0 && run.distanceGuidance.goodTotalPathFt > 0);
+    const activeRuns = result.tapeRunResults.filter((run) => run.tapeLength > 0);
     if (!activeRuns.length) return false;
 
     let changed = false;
-    const globalRecommendedDistance = Math.min(...activeRuns.map((run) => run.distanceGuidance.goodTotalPathFt));
-    const maxSegmentCount = Math.max(
-      2,
-      ...activeControllers.map((controller) => {
-        const powerSegments = inputState.powerMode === "shared" ? 2 : 1;
-        const tapeSegments = controller.tapeMode === "shared" ? 2 : 1;
-        return powerSegments + tapeSegments;
-      })
-    );
+    const controllerPowerLimits = activeControllers
+      .map((controller) => number(controller.powerCableLimitFt))
+      .filter((distance) => distance > 0);
+    const sharedPowerDistance =
+      inputState.powerMode === "shared" && controllerPowerLimits.length ? Math.min(...controllerPowerLimits) / 2 : 0;
 
     if (inputState.powerMode === "shared") {
-      changed =
-        setAutoDistance(inputState.sharedPower, "distance", "distanceAuto", globalRecommendedDistance / maxSegmentCount) || changed;
+      changed = setAutoDistance(inputState.sharedPower, "distance", "distanceAuto", sharedPowerDistance) || changed;
     }
 
     activeControllers.forEach((controller) => {
       const controllerState = inputState.controllers[controller.controllerIndex];
       const controllerRuns = controller.runResults.filter(
-        (run) => run.tapeLength > 0 && run.distanceGuidance.goodTotalPathFt > 0
+        (run) => run.tapeLength > 0 && number(run.distanceGuidance.controlSpecLimitFt) > 0
       );
       if (!controllerState || !controllerRuns.length) return;
 
-      const controllerRecommendedDistance = Math.min(...controllerRuns.map((run) => run.distanceGuidance.goodTotalPathFt));
-      const powerSegments = inputState.powerMode === "shared" ? 2 : 1;
-      const tapeSegments = controller.tapeMode === "shared" ? 2 : 1;
-      const segmentDistance = controllerRecommendedDistance / (powerSegments + tapeSegments);
+      const powerLimit = number(controller.powerCableLimitFt);
+      const powerBranchDistance =
+        inputState.powerMode === "shared" ? Math.max(0, powerLimit - sharedPowerDistance) : powerLimit;
 
-      if (inputState.powerMode === "shared") {
+      if (inputState.powerMode === "shared" && powerLimit > 0) {
         changed =
-          setAutoDistance(controllerState, "distanceSplitToController", "distanceSplitToControllerAuto", segmentDistance) ||
+          setAutoDistance(controllerState, "distanceSplitToController", "distanceSplitToControllerAuto", powerBranchDistance) ||
           changed;
-      } else {
+      } else if (powerLimit > 0) {
         changed =
-          setAutoDistance(controllerState, "distancePowerToController", "distancePowerToControllerAuto", segmentDistance) ||
+          setAutoDistance(controllerState, "distancePowerToController", "distancePowerToControllerAuto", powerBranchDistance) ||
           changed;
       }
 
-      if (controller.tapeMode === "shared") {
+      const controlLimit = number(controller.controlCableLimitFt);
+      const wiringStyle = controllerWiringStyle(controller);
+      const seriesGroups = orderedSeriesGroups(controller);
+      const segmentCount =
+        isSeriesWiring(controller)
+          ? Math.max(
+              1,
+              seriesGroups.reduce((sum, group) => sum + group.runs.length, 0) +
+                controllerRuns.reduce((sum, run) => sum + (run.feedBothEnds ? 1 : 0), 0)
+            )
+          : Math.max(1, controllerRuns.reduce((sum, run) => sum + (run.feedBothEnds ? 2 : 1), 0));
+      const sharedControlDistance =
+        wiringStyle === "series-parallel" && controlLimit > 0 ? Math.min(1, controlLimit / (segmentCount + 1)) : 0;
+      const controlPathBudget =
+        controlLimit > 0 ? Math.max(0, controlLimit - sharedControlDistance) / segmentCount : 0;
+      const parallelSharedDistance =
+        wiringStyle === "parallel" && controller.tapeMode === "shared" && controlPathBudget > 0
+          ? Math.min(1, controlPathBudget / 2)
+          : 0;
+      const controlBranchDistance = Math.max(0, controlPathBudget - parallelSharedDistance);
+
+      if (wiringStyle === "series-parallel") {
         changed =
-          setAutoDistance(controllerState, "distanceControllerToTapeSplit", "distanceControllerToTapeSplitAuto", segmentDistance) ||
+          setAutoDistance(
+            controllerState,
+            "distanceControllerToTapeSplit",
+            "distanceControllerToTapeSplitAuto",
+            sharedControlDistance,
+            { rounding: "floor" }
+          ) ||
+          changed;
+      } else if (wiringStyle === "parallel" && controller.tapeMode === "shared") {
+        changed =
+          setAutoDistance(
+            controllerState,
+            "distanceControllerToTapeSplit",
+            "distanceControllerToTapeSplitAuto",
+            parallelSharedDistance,
+            { rounding: "floor" }
+          ) ||
           changed;
       }
 
@@ -1687,18 +2136,69 @@
         const stateRun = inputState.tapeRuns[run.globalRunIndex];
         if (!stateRun) return;
 
-        if (controller.tapeMode === "shared") {
+        if (wiringStyle === "series") {
+          if (seriesRunIndex(controller, run) === 0) {
+            changed =
+              setAutoDistance(
+                stateRun,
+                "distanceControllerToTapeStart",
+                "distanceControllerToTapeStartAuto",
+                controlPathBudget,
+                { rounding: "floor" }
+              ) ||
+              changed;
+          } else {
+            changed =
+              setAutoDistance(
+                stateRun,
+                "distancePreviousToTapeStart",
+                "distancePreviousToTapeStartAuto",
+                controlPathBudget,
+                { rounding: "floor" }
+              ) ||
+              changed;
+          }
+        } else if (wiringStyle === "series-parallel") {
+          if (seriesRunIndex(controller, run) === 0) {
+            changed =
+              setAutoDistance(stateRun, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto", controlPathBudget, {
+                rounding: "floor"
+              }) ||
+              changed;
+          } else {
+            changed =
+              setAutoDistance(
+                stateRun,
+                "distancePreviousToTapeStart",
+                "distancePreviousToTapeStartAuto",
+                controlPathBudget,
+                { rounding: "floor" }
+              ) ||
+              changed;
+          }
+        } else if (controller.tapeMode === "shared") {
           changed =
-            setAutoDistance(stateRun, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto", segmentDistance) ||
+            setAutoDistance(stateRun, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto", controlBranchDistance, {
+              rounding: "floor"
+            }) ||
             changed;
         } else {
           changed =
-            setAutoDistance(stateRun, "distanceControllerToTapeStart", "distanceControllerToTapeStartAuto", segmentDistance) ||
+            setAutoDistance(
+              stateRun,
+              "distanceControllerToTapeStart",
+              "distanceControllerToTapeStartAuto",
+              controlBranchDistance,
+              { rounding: "floor" }
+            ) ||
             changed;
         }
 
         if (run.feedBothEnds) {
-          changed = setAutoDistance(stateRun, "farEndDistance", "farEndDistanceAuto", segmentDistance) || changed;
+          changed =
+            setAutoDistance(stateRun, "farEndDistance", "farEndDistanceAuto", controlBranchDistance, {
+              rounding: "floor"
+            }) || changed;
         }
       });
     });
@@ -1717,11 +2217,15 @@
       const defaultRunName = run.defaultRunName || `Tape Run ${globalRunIndex + 1}`;
       const customName = typeof run.customName === "string" ? run.customName : "";
       const tapeLength = Math.max(0, number(run.tapeLength));
+      const seriesBranchIndex = Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(run.seriesBranchIndex ?? 0))));
+      const seriesPosition = Math.min(MAX_RUNS - 1, Math.max(0, Math.round(number(run.seriesPosition ?? globalRunIndex))));
 
       return {
         ...run,
         controllerIndex,
         zoneIndex,
+        seriesBranchIndex,
+        seriesPosition,
         zoneName: zoneLabel(zoneIndex),
         globalRunIndex,
         customName,
@@ -1859,7 +2363,7 @@
               controller.inputCurrent;
 
       const tapeSplitDropV =
-        controller.tapeMode === "shared"
+        controllerUsesTapeSplit(controller)
           ? controllerDropV +
             ohmsForWire(controller.wireSizeControllerToTapeSplit) *
               Math.max(0, number(controller.distanceControllerToTapeSplit)) *
@@ -1874,10 +2378,18 @@
           : interfaceLimit?.overLimit || controllerOverTapeLimit
             ? { label: "Too much tape", level: "fail" }
             : { label: "In range", level: "ok" };
+      const powerCableDistanceFt = controllerPowerDistance(inputState, controller);
+      const powerCableWireSize = controllerPowerWireSize(inputState, controller);
+      const powerCableLimitValueFt = powerCableLimitFt(controller.tape, controller.totalTapeLength, powerCableWireSize);
+      const powerCableTableStatus = cableDistanceStatus(powerCableDistanceFt, powerCableLimitValueFt, controller.totalTapeLength > 0);
+      const controlCableDistanceFt = controllerControlCableDistance(controller);
+      const controlCableWireSize = controllerControlWireSize(controller);
+      const controlCableLimitValueFt = controlCableLimitFt(controller.tape, controller.totalTapeLength, controlCableWireSize);
+      const controlCableTableStatus = cableDistanceStatus(controlCableDistanceFt, controlCableLimitValueFt, controller.totalTapeLength > 0);
 
       const runResults = controller.runs.map((run) => {
         const hasTape = run.tapeLength > 0;
-        const baseDropV = tapeSplitDropV;
+        const baseDropV = controlDropBeforeRun(controller, run, controllerDropV);
         const nearDistance = runDistance(controller, run);
         const nearWireSize = run.wireSizeToTapeStart;
         const dualEndRecommendedOverFt = controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT;
@@ -1992,6 +2504,8 @@
         }
 
         const distanceGuidance = runDistanceGuidance(inputState, controller, run, totalCurrent);
+        const runControlCableStatus = hasTape ? startStatus : { label: "No tape", level: "neutral" };
+
         const runOverallLevel = worstLevel([startStatus.level, runStatus.level, specStatus.level]);
         const runOverallStatus = {
           level: runOverallLevel,
@@ -2008,6 +2522,8 @@
           startStatus,
           runStatus,
           specStatus,
+          controlCableStatus: runControlCableStatus,
+          powerCableStatus: startStatus,
           runOverallStatus,
           distanceGuidance,
           lengthLimit: run.feedBothEnds ? maxContinuousRunFt : dualEndRecommendedOverFt,
@@ -2018,11 +2534,22 @@
 
       const worstStartFade = Math.max(0, ...runResults.map((run) => run.fadeAtTapeStartPct));
       const worstRunFade = Math.max(0, ...runResults.map((run) => run.visibleRunFadePct));
+      const voltageDropStatus = startFadeBucket(worstStartFade, controller.totalTapeLength > 0);
 
       return {
         ...controller,
         controllerDropV,
         tapeSplitDropV,
+        powerCableDistanceFt,
+        powerCableWireSize,
+        powerCableLimitFt: powerCableLimitValueFt,
+        powerCableStatus: voltageDropStatus,
+        powerCableTableStatus,
+        controlCableDistanceFt,
+        controlCableWireSize,
+        controlCableLimitFt: controlCableLimitValueFt,
+        controlCableStatus: voltageDropStatus,
+        controlCableTableStatus,
         tapeStatus,
         runResults,
         worstStartFade,
@@ -2062,6 +2589,12 @@
       totalWireLength: wireSummary.totalLength,
       totalWireLengthText: wireSummary.text,
       wireLengths: wireSummary.summary,
+      totalPowerWireLength: wireSummary.totalPowerLength,
+      powerWireLengthText: wireSummary.powerText,
+      powerWireLengths: wireSummary.powerSummary,
+      totalControlWireLength: wireSummary.totalControlLength,
+      controlWireLengthText: wireSummary.controlText,
+      controlWireLengths: wireSummary.controlSummary,
       interfaceTapeLimits,
       interfaceTapeLimitText: interfaceTapeLimitText(interfaceTapeLimits),
       activeControllers,
@@ -2136,11 +2669,14 @@
   }
 
   function wireDistanceHelpForLabel(label) {
-    if (label === "Recommended Total Wire Distance") {
-      return HELP_RECOMMENDED_TOTAL_WIRE_DISTANCE;
+    if (label === "Max power wire distance" || label === "Power table reference") {
+      return HELP_MAX_POWER_WIRE_DISTANCE;
     }
-    if (label === "Max Total Wire Distance") {
-      return HELP_MAX_TOTAL_WIRE_DISTANCE;
+    if (label === "Max control wire distance" || label === "Max total control wire" || label === "Control path reference") {
+      return HELP_MAX_CONTROL_WIRE_DISTANCE;
+    }
+    if (label === "Calculated path check") {
+      return "Calculated from the actual power wire and control wire path using Lutron-style voltage-drop math. Under 25% light loss is considered within the recommended range.";
     }
     if (label === "Distance from controller to far end" || label === "Distance from tape split to far end") {
       return HELP_FAR_END_DISTANCE;
@@ -2166,8 +2702,9 @@
     return `<span class="label-with-help">${escapeHtml(label)}${helpTooltip(helpText)}</span>`;
   }
 
-  function fieldInstruction(text) {
-    return `<p class="field-instruction">${escapeHtml(text)}</p>`;
+  function fieldInstruction(text, tone = "") {
+    const toneClass = tone ? ` ${escapeHtml(tone)}` : "";
+    return `<p class="field-instruction${toneClass}">${escapeHtml(text)}</p>`;
   }
 
   function resultChip(label, value, status) {
@@ -2219,6 +2756,8 @@
   function controllerVisualLevel(controller) {
     return worstLevel([
       controller.tapeStatus.level,
+      controller.powerCableStatus?.level,
+      controller.controlCableStatus?.level,
       ...controller.runResults.map((run) => runVisualLevel(run))
     ]);
   }
@@ -2361,16 +2900,53 @@
   }
 
   function systemMapWire(x1, y1, x2, y2, label, level, jump) {
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
-    const labelOffset = Math.abs(y2 - y1) > 38 ? -12 : -9;
+    const sameRow = Math.abs(y2 - y1) < 1;
+    const sameColumn = Math.abs(x2 - x1) < 1;
+    const bendX = Math.round((x1 + x2) / 2);
+    const pathD = sameRow
+      ? `M ${x1} ${y1} H ${x2}`
+      : sameColumn
+        ? `M ${x1} ${y1} V ${y2}`
+        : `M ${x1} ${y1} H ${bendX} V ${y2} H ${x2}`;
+    const labelX = sameColumn ? x1 + 34 : sameRow ? (x1 + x2) / 2 : (bendX + x2) / 2;
+    const labelY = sameColumn ? (y1 + y2) / 2 - 8 : y2 - 9;
+    return systemMapWirePath(pathD, labelX, labelY, label, level, jump, [
+      [x1, y1],
+      [x2, y2]
+    ]);
+  }
+
+  function systemMapPort(x, y, level) {
+    return `<circle class="system-map-port ${level}" cx="${x}" cy="${y}" r="6"></circle>`;
+  }
+
+  function systemMapWirePath(pathD, labelX, labelY, label, level, jump, ports = []) {
     return `
       <g class="system-map-wire-link ${level}" data-jump="${escapeHtml(jump)}" role="button" tabindex="0">
-        <line class="system-map-wire-hit" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
-        <line class="system-map-wire ${level}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
-        <text class="system-map-wire-label" x="${midX}" y="${midY + labelOffset}" text-anchor="middle">${escapeHtml(label)}</text>
+        <path class="system-map-wire-hit" d="${pathD}"></path>
+        <path class="system-map-wire ${level}" d="${pathD}"></path>
+        <text class="system-map-wire-label" x="${labelX}" y="${labelY}" text-anchor="middle">${escapeHtml(label)}</text>
+        ${ports.map(([x, y]) => systemMapPort(x, y, level)).join("")}
       </g>
     `;
+  }
+
+  function systemMapReturnWire(x1, y1, x2, y2, label, level, jump) {
+    const midY = (y1 + y2) / 2;
+    const turnX = x1 + 48;
+    const approachX = x2 - 52;
+    const pathD = [
+      `M ${x1} ${y1}`,
+      `H ${turnX}`,
+      `V ${midY}`,
+      `H ${approachX}`,
+      `V ${y2}`,
+      `H ${x2}`
+    ].join(" ");
+    return systemMapWirePath(pathD, (turnX + approachX) / 2, midY - 8, label, level, jump, [
+      [x1, y1],
+      [x2, y2]
+    ]);
   }
 
   function systemMapTape(x, y, run, level, jump) {
@@ -2392,8 +2968,22 @@
     `;
   }
 
-  function wireTag(distance, wireSize) {
-    return `${ft(distance)} / ${wireSize} AWG`;
+  function powerWireTag(distance, wireSize) {
+    return `${ft(distance)} / ${normalizePowerWireSize(wireSize)} AWG power`;
+  }
+
+  function controlWireTag(distance, tape, wireSize = DEFAULT_CONTROL_WIRE_SIZE) {
+    return `${ft(distance)} / ${controlCableShortLabel(tape, wireSize)}`;
+  }
+
+  function controlWireTypeField(tape, wireSize = DEFAULT_CONTROL_WIRE_SIZE, path = "") {
+    const value = normalizeControlWireSize(wireSize);
+    return `
+      <div class="map-field static-field">
+        <span>Control wire type</span>
+        <strong>${escapeHtml(controlCableLabel(tape, value))}</strong>
+      </div>
+    `;
   }
 
   function controllerJump(controller) {
@@ -2414,14 +3004,14 @@
 
   function controllerMapPowerLabel(controllerIndex, result) {
     const controller = result.controllers[controllerIndex];
-    if (!controller) return `${DEFAULT_WIRE_SIZE} AWG`;
+    if (!controller) return `${DEFAULT_POWER_WIRE_SIZE} AWG power`;
 
     if (state.powerMode === "shared") {
       const totalDistance = number(state.sharedPower.distance) + number(controller.distanceSplitToController);
       return `${ft(totalDistance)} / mixed AWG`;
     }
 
-    return wireTag(controller.distancePowerToController, controller.wireSizePowerToController);
+    return powerWireTag(controller.distancePowerToController, controller.wireSizePowerToController);
   }
 
   function assignedPowerSupplyGroups(result, recommendation) {
@@ -2483,15 +3073,41 @@
     const tapeSplitX = usesPowerSplit ? 650 : 560;
     const runX = usesPowerSplit ? 830 : 740;
     const tapeX = usesPowerSplit ? 992 : 902;
+    const chainStep = 238;
     const laneGap = 156;
     const runGap = 78;
+    const seriesRowGap = 92;
+    const seriesGroupGap = 18;
+    const maxSeriesColumns = Math.max(
+      1,
+      ...result.controllers
+        .filter((controller) => controller.enabled && isSeriesWiring(controller))
+        .flatMap((controller) => orderedSeriesGroups(controller).map((group) => Math.min(2, group.runs.length)))
+    );
+    const seriesRowsForGroup = (group) => Math.max(1, Math.ceil((group.runs?.length || 1) / 2));
+    const seriesHeightForGroups = (groups) =>
+      groups.length
+        ? groups.reduce((sum, group) => sum + seriesRowsForGroup(group) * seriesRowGap, 0) +
+          Math.max(0, groups.length - 1) * seriesGroupGap
+        : runGap;
+    const controllerMapHeight = (controller) => {
+      const actualController = result.controllers[controller.globalIndex];
+      if (actualController && isSeriesWiring(actualController)) {
+        return Math.max(84, seriesHeightForGroups(orderedSeriesGroups(actualController)));
+      }
+      return Math.max(84, Math.max(1, controller.runs.length) * runGap);
+    };
     const pieces = [];
     const interfaceLimitBySupply = new Map((result.interfaceTapeLimits || []).map((limit) => [limit.interfaceIndex, limit]));
     let cursorY = 58;
 
     mapSupplies.forEach((supply) => {
-      const runCount = Math.max(1, supply.runs.length);
-      const blockHeight = Math.max(112, runCount * runGap);
+      const controllerHeights = supply.controllers.map((controller) => controllerMapHeight(controller));
+      const blockHeight = Math.max(
+        112,
+        controllerHeights.reduce((sum, heightValue) => sum + heightValue, 0) +
+          Math.max(0, controllerHeights.length - 1) * 18
+      );
       const powerY = cursorY + blockHeight / 2 - 32;
       const supplyLimit = interfaceLimitBySupply.get(supply.index);
       const powerLevel = supplyLimit?.overLimit || supply.powerW > POWER_LIMIT_W ? "fail" : "ok";
@@ -2518,7 +3134,7 @@
             powerY + 32,
             powerSplitX,
             powerY + 32,
-            wireTag(state.sharedPower.distance, state.sharedPower.wireSize),
+            powerWireTag(state.sharedPower.distance, state.sharedPower.wireSize),
             powerLevel,
             "#sharedPowerFields"
           )
@@ -2538,19 +3154,23 @@
       }
 
       let localCursor = cursorY;
-      supply.controllers.forEach((controller) => {
+      supply.controllers.forEach((controller, controllerPosition) => {
         const actualController = result.controllers[controller.globalIndex];
         const controllerRuns = controller.runs.length ? controller.runs : [];
-        const controllerHeight = Math.max(84, controllerRuns.length * runGap);
-        const controllerY = localCursor + controllerHeight / 2 - 32;
+        const wiringStyle = actualController ? controllerWiringStyle(actualController) : "parallel";
+        const seriesGroups = actualController && isSeriesWiring(actualController) ? orderedSeriesGroups(actualController) : [];
+        const isSeriesController = actualController && isSeriesWiring(actualController);
+        const controllerHeight = controllerHeights[controllerPosition] || 84;
+        const firstSeriesRunY = localCursor + seriesRowGap / 2;
+        const controllerY = isSeriesController ? firstSeriesRunY - 32 : localCursor + controllerHeight / 2 - 32;
         const controllerLevel = actualController ? controllerVisualLevel(actualController) : worstLevel(controllerRuns.map((run) => run.runOverallStatus.level));
-        const usesTapeSplit = actualController?.tapeMode === "shared";
+        const usesTapeSplit = actualController ? controllerUsesTapeSplit(actualController) : false;
         const controllerTarget = actualController ? controllerJump(actualController) : "#advancedDetails";
         const controllerPowerTarget = actualController ? controllerPowerJump(actualController) : "#advancedDetails";
         const powerSourceX = usesPowerSplit ? powerSplitX + powerSplitWidth : powerX + 126;
         const powerLabel =
           usesPowerSplit && actualController
-            ? wireTag(actualController.distanceSplitToController, actualController.wireSizeSplitToController)
+            ? powerWireTag(actualController.distanceSplitToController, actualController.wireSizeSplitToController)
             : controllerMapPowerLabel(controller.globalIndex, result);
 
         pieces.push(
@@ -2590,46 +3210,112 @@
               controllerY + 32,
               tapeSplitX,
               controllerY + 32,
-              wireTag(actualController.distanceControllerToTapeSplit, actualController.wireSizeControllerToTapeSplit),
+              controlWireTag(
+                actualController.distanceControllerToTapeSplit,
+                actualController.tape,
+                actualController.wireSizeControllerToTapeSplit
+              ),
               splitLevel,
               tapeSplitJump(actualController)
             )
           );
-          pieces.push(systemMapNode(tapeSplitX, controllerY, 96, 64, "Tape Split", "to runs", splitLevel, tapeSplitJump(actualController)));
-        }
-
-        const firstRunY = localCursor + controllerHeight / 2 - ((controllerRuns.length - 1) * runGap) / 2;
-        controllerRuns.forEach((run, runIndex) => {
-          const actualRun = actualRunByIndex.get(run.globalRunIndex) || run;
-          const runY = firstRunY + runIndex * runGap;
-          const runLevel = actualRun.runOverallStatus?.level || run.runOverallStatus.level;
-          const runTarget = actualController ? runJump(actualController, actualRun) : "#advancedDetails";
-          pieces.push(
-            systemMapWire(
-              runSourceX,
-              runSourceY,
-              runX,
-              runY,
-              wireTag(actualRun.runDistance || actualRun.distanceControllerToTapeStart || actualRun.distanceSplitToTapeStart, actualRun.wireSizeToTapeStart),
-              runLevel,
-              runTarget
-            )
-          );
           pieces.push(
             systemMapNode(
-              runX,
-              runY - 30,
-              118,
-              60,
-              shortMapLabel(actualRun.runName),
-              `${ft(actualRun.tapeLength)} tape`,
-              runLevel,
-              runTarget,
-              "run"
+              tapeSplitX,
+              controllerY,
+              96,
+              64,
+              wiringStyle === "series-parallel" ? "Branch Point" : "Tape Split",
+              wiringStyle === "series-parallel" ? "to branches" : "to runs",
+              splitLevel,
+              tapeSplitJump(actualController)
             )
           );
-          pieces.push(systemMapTape(tapeX, runY, actualRun, runLevel, runTarget));
-        });
+        }
+
+        if (actualController && isSeriesWiring(actualController)) {
+          let branchStartY = controllerY + 32;
+          seriesGroups.forEach((group, groupIndex) => {
+            let previousEndX = wiringStyle === "series-parallel" ? tapeSplitX + 96 : controllerX + 128;
+            let previousEndY = wiringStyle === "series-parallel" ? controllerY + 32 : controllerY + 32;
+
+            group.runs.forEach((seriesRun, seriesIndex) => {
+              const actualRun = actualRunByIndex.get(seriesRun.globalRunIndex) || seriesRun;
+              const runLevel = actualRun.runOverallStatus?.level || seriesRun.runOverallStatus.level;
+              const runTarget = runJump(actualController, actualRun);
+              const rowIndex = Math.floor(seriesIndex / 2);
+              const columnIndex = seriesIndex % 2;
+              const runY = branchStartY + rowIndex * seriesRowGap;
+              const nodeX = runX + columnIndex * chainStep;
+              const tapeStartX = nodeX + 118;
+              const label =
+                seriesIndex === 0
+                  ? controlWireTag(actualRun.runDistance, actualController.tape, actualRun.wireSizeToTapeStart)
+                  : controlWireTag(actualRun.runDistance, actualController.tape, actualRun.wireSizeToTapeStart);
+
+              if (seriesIndex > 0 && columnIndex === 0) {
+                pieces.push(systemMapReturnWire(previousEndX, previousEndY, nodeX, runY, label, runLevel, runTarget));
+              } else {
+                pieces.push(systemMapWire(previousEndX, previousEndY, nodeX, runY, label, runLevel, runTarget));
+              }
+              pieces.push(
+                systemMapNode(
+                  nodeX,
+                  runY - 30,
+                  118,
+                  60,
+                  shortMapLabel(actualRun.runName),
+                  `${ft(actualRun.tapeLength)} tape`,
+                  runLevel,
+                  runTarget,
+                  "run"
+                )
+              );
+              pieces.push(systemMapTape(tapeStartX, runY, actualRun, runLevel, runTarget));
+              previousEndX = tapeStartX + 104;
+              previousEndY = runY;
+            });
+
+            branchStartY += seriesRowsForGroup(group) * seriesRowGap + seriesGroupGap;
+          });
+        } else {
+          const firstRunY = localCursor + controllerHeight / 2 - ((controllerRuns.length - 1) * runGap) / 2;
+          controllerRuns.forEach((run, runIndex) => {
+            const actualRun = actualRunByIndex.get(run.globalRunIndex) || run;
+            const runY = firstRunY + runIndex * runGap;
+            const runLevel = actualRun.runOverallStatus?.level || run.runOverallStatus.level;
+            const runTarget = actualController ? runJump(actualController, actualRun) : "#advancedDetails";
+            pieces.push(
+              systemMapWire(
+                runSourceX,
+                runSourceY,
+                runX,
+                runY,
+                controlWireTag(
+                  actualRun.runDistance || actualRun.distanceControllerToTapeStart || actualRun.distanceSplitToTapeStart,
+                  actualController?.tape || state.tapeType,
+                  actualRun.wireSizeToTapeStart
+                ),
+                runLevel,
+                runTarget
+              )
+            );
+            pieces.push(
+              systemMapNode(
+                runX,
+                runY - 30,
+                118,
+                60,
+                shortMapLabel(actualRun.runName),
+                `${ft(actualRun.tapeLength)} tape`,
+                runLevel,
+                runTarget,
+                "run"
+              )
+            );
+            pieces.push(systemMapTape(tapeX, runY, actualRun, runLevel, runTarget));
+          });
+        }
 
         localCursor += controllerHeight + 18;
       });
@@ -2638,7 +3324,7 @@
     });
 
     const height = Math.max(240, cursorY - laneGap + 58);
-    const width = usesPowerSplit ? 1180 : 1080;
+    const width = (usesPowerSplit ? 1180 : 1080) + Math.max(0, maxSeriesColumns - 1) * chainStep;
 
     els.systemMap.innerHTML = `
       <div class="system-map-track" style="--map-width: ${width}px;">
@@ -2652,7 +3338,6 @@
 
   function renderSuggestedSystem(recommendation, result) {
     const dualFeedRuns = result.tapeRunResults.filter((run) => run.tapeLength > 0 && run.feedBothEnds);
-    const recommendedWire = summarizeRecommendedWireLengths(recommendation);
     const materialsHtml = `
       <section class="materials-summary" aria-label="Suggested materials summary">
         <h3>Suggested Materials Summary</h3>
@@ -2660,14 +3345,13 @@
           ${resultChip("Tape light", ft(recommendation.totalTapeLength))}
           ${resultChip("Controllers", recommendation.controllerCount || 0)}
           ${resultChip("Power supplies", recommendation.powerSupplyCount || 0)}
-          ${resultChip("Max recommended low-voltage wire", recommendedWire.text)}
+          ${resultChip("Power wire", result.powerWireLengthText || "Enter power distances")}
+          ${resultChip("Control wire", result.controlWireLengthText || controlCableLabel(recommendation.tape))}
         </div>
         <p>
           Based on ${escapeHtml(recommendation.tape.label)} with ${recommendation.controllerCount || 0} ${
       recommendation.controllerCount === 1 ? "controller" : "controllers"
-    }. Low-voltage wire is estimated at ${DEFAULT_WIRE_SIZE} AWG using the max recommended distance to stay under ${
-      GOOD_LIGHT_LOSS_PCT
-    }% light loss. ${
+    }. Power wire is the 2-conductor run from the power interface to the controller. Control wire runs from the controller to the tape; conductor count is based on the tape product and control wire is fixed at 22 AWG. ${
       dualFeedRuns.length
         ? `Dual-feed runs: ${escapeHtml(dualFeedRuns.map((run) => run.runName).join(", "))}.`
         : "No dual-feed runs currently selected."
@@ -2704,25 +3388,30 @@
       .flatMap((supply) => supply.controllers.flatMap((controller) => controller.runs))
       .map((run) => {
         const actualRun = actualRunByIndex.get(run.globalRunIndex) || run;
+        const guidance = actualRun.distanceGuidance || run.distanceGuidance;
         const target = runJump({ controllerIndex: actualRun.controllerIndex }, actualRun);
+        const statusSource = actualRun.runOverallStatus || run.runOverallStatus;
         const statusPill =
           run.needsDualFeed && !actualRun.feedBothEnds
-            ? jumpPill(run.runOverallStatus, target, `Jump to ${actualRun.runName} dual-feed settings`)
-            : pill(run.runOverallStatus);
+            ? jumpPill(statusSource, target, `Jump to ${actualRun.runName} dual-feed settings`)
+            : pill(statusSource);
 
         return `
-          <div class="suggested-run-row ${run.runOverallStatus.level}">
+          <div class="suggested-run-row ${statusSource.level}">
             <div>
               <strong>${escapeHtml(run.runName)}</strong>
               <span>${ft(run.tapeLength)} - ${run.controllerLabel}</span>
             </div>
             <div>
-              <div class="suggested-row-label">${labelWithHelp("Recommended Total Wire Distance")}</div>
-              <strong>${ft(run.distanceGuidance.goodTotalPathFt)} <small>${GOOD_LIGHT_LOSS_PCT}% loss</small></strong>
+              <div class="suggested-row-label">${labelWithHelp("Power table reference")}</div>
+              <strong>${ft(guidance.powerSpecLimitFt)} <small>${guidance.powerWireSize} AWG</small></strong>
             </div>
             <div>
-              <div class="suggested-row-label">${labelWithHelp("Max Total Wire Distance")}</div>
-              <strong>${ft(run.distanceGuidance.maxTotalPathFt)} <small>${MAX_LIGHT_LOSS_PCT}% loss</small></strong>
+              <div class="suggested-row-label">${labelWithHelp("Control path reference")}</div>
+              <strong>${ft(guidance.controlSpecLimitFt)} <small>${controlCableShortLabel(
+          recommendation.tape,
+          guidance.controlWireSize
+        )}</small></strong>
             </div>
             ${statusPill}
           </div>
@@ -2779,7 +3468,7 @@
           powerY + 32,
           powerSplitX,
           powerY + 32,
-          wireTag(state.sharedPower.distance, state.sharedPower.wireSize),
+          powerWireTag(state.sharedPower.distance, state.sharedPower.wireSize),
           result.level,
           "#sharedPowerFields"
         )
@@ -2794,8 +3483,8 @@
       const sourceY = powerY + 32;
       const powerLabel =
         state.powerMode === "shared"
-          ? wireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
-          : wireTag(controller.distancePowerToController, controller.wireSizePowerToController);
+          ? powerWireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
+          : powerWireTag(controller.distancePowerToController, controller.wireSizePowerToController);
 
       pieces.push(systemMapWire(sourceX, sourceY, controllerX, controllerY + 32, powerLabel, controllerLevel, controllerPowerJump(controller)));
       pieces.push(
@@ -2822,7 +3511,7 @@
             controllerY + 32,
             tapeSplitX,
             controllerY + 32,
-            wireTag(controller.distanceControllerToTapeSplit, controller.wireSizeControllerToTapeSplit),
+            controlWireTag(controller.distanceControllerToTapeSplit, controller.tape, controller.wireSizeControllerToTapeSplit),
             splitLevel,
             tapeSplitJump(controller)
           )
@@ -2835,10 +3524,19 @@
         const runY = firstRunY + runIndex * runGap;
         const runLevel = runVisualLevel(run);
         const jump = runJump(controller, run);
-        const wireSize = run.wireSizeToTapeStart;
         const runSub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
 
-        pieces.push(systemMapWire(runSourceX, runSourceY, runX, runY, wireTag(run.runDistance, wireSize), runLevel, jump));
+        pieces.push(
+          systemMapWire(
+            runSourceX,
+            runSourceY,
+            runX,
+            runY,
+            controlWireTag(run.runDistance, controller.tape, run.wireSizeToTapeStart),
+            runLevel,
+            jump
+          )
+        );
         pieces.push(systemMapNode(runX, runY - 30, 112, 60, shortMapLabel(run.runName), runSub, runLevel, jump, "run"));
         pieces.push(systemMapTape(runX + runWidth, runY, run, runLevel, jump));
       });
@@ -2876,7 +3574,7 @@
     ];
 
     if (state.powerMode === "shared") {
-      pieces.push(mapStackWire(wireTag(state.sharedPower.distance, state.sharedPower.wireSize), result.level, "#sharedPowerFields"));
+      pieces.push(mapStackWire(powerWireTag(state.sharedPower.distance, state.sharedPower.wireSize), result.level, "#sharedPowerFields"));
       pieces.push(mapStackItem("Power Split", "to controllers", result.level, "#sharedPowerFields"));
     }
 
@@ -2884,8 +3582,8 @@
       const controllerLevel = controllerVisualLevel(controller);
       const powerLabel =
         state.powerMode === "shared"
-          ? wireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
-          : wireTag(controller.distancePowerToController, controller.wireSizePowerToController);
+          ? powerWireTag(controller.distanceSplitToController, controller.wireSizeSplitToController)
+          : powerWireTag(controller.distancePowerToController, controller.wireSizePowerToController);
 
       pieces.push(mapStackWire(powerLabel, controllerLevel, controllerPowerJump(controller)));
       pieces.push(
@@ -2901,7 +3599,7 @@
         const splitLevel = worstLevel(controller.runResults.map((run) => runVisualLevel(run)));
         pieces.push(
           mapStackWire(
-            wireTag(controller.distanceControllerToTapeSplit, controller.wireSizeControllerToTapeSplit),
+            controlWireTag(controller.distanceControllerToTapeSplit, controller.tape, controller.wireSizeControllerToTapeSplit),
             splitLevel,
             tapeSplitJump(controller)
           )
@@ -2912,7 +3610,7 @@
       controller.runResults.slice(0, controller.runCount).forEach((run) => {
         const runLevel = runVisualLevel(run);
         const sub = run.tapeLength > 0 ? `${ft(run.tapeLength)} tape` : "no tape";
-        pieces.push(mapStackWire(wireTag(run.runDistance, run.wireSizeToTapeStart), runLevel, runJump(controller, run)));
+        pieces.push(mapStackWire(controlWireTag(run.runDistance, controller.tape, run.wireSizeToTapeStart), runLevel, runJump(controller, run)));
         pieces.push(mapStackItem(run.runName, sub, runLevel, runJump(controller, run), run.feedBothEnds ? "both-ends" : ""));
       });
     });
@@ -2949,7 +3647,7 @@
 
     els.sharedPowerFields.innerHTML = `
       <div class="wire-map">
-        ${fieldInstruction("Enter the actual shared power wire distance and choose the wire gauge used before it splits to the controllers.")}
+        ${fieldInstruction("Enter the actual shared power wire distance and choose the power wire gauge used before it splits to the controllers.", "primary")}
         <div class="map-node">
           <span>Power box</span>
           <strong>LU-PH3</strong>
@@ -2962,8 +3660,8 @@
           </div>
         </label>
         <label class="map-field">
-          <span>Wire size before the split</span>
-          <select data-path="sharedPower.wireSize">${optionMarkup(wireSizes, state.sharedPower.wireSize)}</select>
+          <span>Power wire size before the split</span>
+          <select data-path="sharedPower.wireSize">${optionMarkup(POWER_WIRE_SIZES, state.sharedPower.wireSize)}</select>
         </label>
         <div class="map-node">
           <span>Split</span>
@@ -2980,7 +3678,7 @@
     if (state.powerMode === "shared") {
       return `
         <div id="controller-${index + 1}-power" class="wire-map guide-step ${stepClass}" data-guide-step-id="${stepId}">
-          ${fieldInstruction("Enter the actual wire distance from the power split to this controller, then choose the wire gauge.")}
+          ${fieldInstruction("Enter the actual power wire distance from the power split to this controller, then choose the power wire gauge.", "primary")}
           <div class="map-node">
             <span>Split</span>
             <strong>Power feed</strong>
@@ -2993,8 +3691,8 @@
             </div>
           </label>
           <label class="map-field">
-            <span>Wire size to controller</span>
-            <select data-path="controllers.${index}.wireSizeSplitToController">${optionMarkup(wireSizes, controller.wireSizeSplitToController)}</select>
+            <span>Power wire size to controller</span>
+            <select data-path="controllers.${index}.wireSizeSplitToController">${optionMarkup(POWER_WIRE_SIZES, controller.wireSizeSplitToController)}</select>
           </label>
           <div class="map-node">
             <span>Controller</span>
@@ -3007,7 +3705,7 @@
 
     return `
       <div id="controller-${index + 1}-power" class="wire-map guide-step ${stepClass}" data-guide-step-id="${stepId}">
-        ${fieldInstruction("Enter the actual wire distance from the power box to this controller, then choose the wire gauge.")}
+        ${fieldInstruction("Enter the actual power wire distance from the power box to this controller, then choose the power wire gauge.", "primary")}
         <div class="map-node">
           <span>Power box</span>
           <strong>LU-PH3</strong>
@@ -3020,8 +3718,8 @@
           </div>
         </label>
         <label class="map-field">
-          <span>Wire size to controller</span>
-          <select data-path="controllers.${index}.wireSizePowerToController">${optionMarkup(wireSizes, controller.wireSizePowerToController)}</select>
+          <span>Power wire size to controller</span>
+          <select data-path="controllers.${index}.wireSizePowerToController">${optionMarkup(POWER_WIRE_SIZES, controller.wireSizePowerToController)}</select>
         </label>
         <div class="map-node">
           <span>Controller</span>
@@ -3034,58 +3732,139 @@
 
   function renderTapeSplitFields(controller) {
     const index = controller.controllerIndex;
-    if (controller.tapeMode !== "shared") return "";
+    if (!controllerUsesTapeSplit(controller)) return "";
+
+    const style = controllerWiringStyle(controller);
+    const instruction =
+      style === "series-parallel"
+        ? `Enter the shared control wire distance from the controller to the branch point. This uses ${controlCableConductorCount(
+            controller.tape
+          )}-conductor 22 AWG control wire.`
+        : `Enter the shared control wire distance before the tape runs split. This uses ${controlCableConductorCount(
+            controller.tape
+          )}-conductor 22 AWG control wire.`;
 
     return `
       <div id="controller-${index + 1}-tape-split" class="wire-map">
-        ${fieldInstruction("Enter the shared control wire distance before the tape runs split, then choose the wire gauge.")}
+        ${fieldInstruction(instruction)}
         <div class="map-node">
           <span>Controller</span>
           <strong>${index + 1}</strong>
         </div>
         <label class="map-field">
-          <span>Shared distance before tape runs split</span>
+          <span>${style === "series-parallel" ? "Distance from controller to branch point" : "Shared distance before tape runs split"}</span>
           <div class="input-with-unit">
             <input class="distance-input" data-path="controllers.${index}.distanceControllerToTapeSplit" type="number" min="0" max="500" step="0.1" value="${controller.distanceControllerToTapeSplit}">
             <span>ft</span>
           </div>
         </label>
-        <label class="map-field">
-          <span>Wire size before tape split</span>
-          <select data-path="controllers.${index}.wireSizeControllerToTapeSplit">${optionMarkup(wireSizes, controller.wireSizeControllerToTapeSplit)}</select>
-        </label>
+        ${controlWireTypeField(
+          controller.tape,
+          controller.wireSizeControllerToTapeSplit,
+          `controllers.${index}.wireSizeControllerToTapeSplit`
+        )}
         <div class="map-node">
-          <span>Split</span>
-          <strong>To tape runs</strong>
+          <span>${style === "series-parallel" ? "Branch point" : "Split"}</span>
+          <strong>${style === "series-parallel" ? "To branches" : "To tape runs"}</strong>
         </div>
+      </div>
+    `;
+  }
+
+  function runDistanceFieldConfig(controller, run) {
+    const style = controllerWiringStyle(controller);
+    const position = seriesRunIndex(controller, run);
+
+    if (style === "series") {
+      return position === 0
+        ? {
+            fromNode: `Controller ${controller.controllerIndex + 1}`,
+            distanceLabel: "Distance from controller to first tape",
+            distancePath: "distanceControllerToTapeStart",
+            farEndDistanceLabel: "Distance from controller to far end"
+          }
+        : {
+            fromNode: "Previous tape",
+            distanceLabel: "Wire distance from previous tape to this tape",
+            distancePath: "distancePreviousToTapeStart",
+            farEndDistanceLabel: "Distance from controller to far end"
+          };
+    }
+
+    if (style === "series-parallel") {
+      return position === 0
+        ? {
+            fromNode: "Branch point",
+            distanceLabel: "Distance from branch point to first tape",
+            distancePath: "distanceSplitToTapeStart",
+            farEndDistanceLabel: "Distance from branch point to far end"
+          }
+        : {
+            fromNode: "Previous tape",
+            distanceLabel: "Wire distance from previous tape to this tape",
+            distancePath: "distancePreviousToTapeStart",
+            farEndDistanceLabel: "Distance from branch point to far end"
+          };
+    }
+
+    return controller.tapeMode === "shared"
+      ? {
+          fromNode: "Tape split",
+          distanceLabel: "Distance from tape split to tape start",
+          distancePath: "distanceSplitToTapeStart",
+          farEndDistanceLabel: "Distance from tape split to far end"
+        }
+      : {
+          fromNode: `Controller ${controller.controllerIndex + 1}`,
+          distanceLabel: "Distance from controller to tape start",
+          distancePath: "distanceControllerToTapeStart",
+          farEndDistanceLabel: "Distance from controller to far end"
+        };
+  }
+
+  function seriesRunSetupFields(controller, run, basePath, runCount) {
+    const style = controllerWiringStyle(controller);
+    if (!isSeriesWiring(controller)) return "";
+
+    const branchField =
+      style === "series-parallel"
+        ? `
+          <label>
+            <span>Branch</span>
+            <select data-path="${basePath}.seriesBranchIndex">${seriesBranchOptions(run.seriesBranchIndex, runCount)}</select>
+          </label>
+        `
+        : "";
+
+    return `
+      <div class="series-run-setup">
+        ${branchField}
+        <label>
+          <span>Order in ${style === "series-parallel" ? "branch" : "chain"}</span>
+          <select data-path="${basePath}.seriesPosition">${seriesPositionOptions(run.seriesPosition, runCount)}</select>
+        </label>
       </div>
     `;
   }
 
   function renderRun(controller, run, runIndex, result) {
     const controllerIndex = controller.controllerIndex;
-    const fromNode = controller.tapeMode === "shared" ? "Tape split" : `Controller ${controllerIndex + 1}`;
-    const distanceLabel =
-      controller.tapeMode === "shared" ? "Distance from tape split to tape start" : "Distance from controller to tape start";
-    const distancePath =
-      controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
+    const distanceConfig = runDistanceFieldConfig(controller, run);
     const farEndFields = run.feedBothEnds
       ? `
         <div class="far-end-fields">
           <label class="map-field">
-            <span>${labelWithHelp("Distance from controller to far end")}</span>
+            <span>${labelWithHelp(distanceConfig.farEndDistanceLabel)}</span>
             <div class="input-with-unit">
               <input class="distance-input" data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
               <span>ft</span>
             </div>
           </label>
-          <label class="map-field">
-            <span>Wire size to far end</span>
-            <select data-path="controllers.${controllerIndex}.runs.${runIndex}.farEndWireSize">${optionMarkup(
-              wireSizes,
-              run.farEndWireSize
-            )}</select>
-          </label>
+          ${controlWireTypeField(
+            controller.tape,
+            run.farEndWireSize || run.wireSizeToTapeStart,
+            `controllers.${controllerIndex}.runs.${runIndex}.farEndWireSize`
+          )}
         </div>
       `
       : "";
@@ -3115,25 +3894,27 @@
           </label>
         </div>
         <div class="wire-map run">
-          ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
+          ${fieldInstruction(
+            `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
+              controller.tape
+            )}-conductor 22 AWG control wire.`
+          )}
           <div class="map-node">
-            <span>${fromNode}</span>
+            <span>${distanceConfig.fromNode}</span>
             <strong>To ${escapeHtml(run.runName)}</strong>
           </div>
           <label class="map-field">
-            <span>${distanceLabel}</span>
+            <span>${distanceConfig.distanceLabel}</span>
             <div class="input-with-unit">
-              <input class="distance-input" data-path="controllers.${controllerIndex}.runs.${runIndex}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+              <input class="distance-input" data-path="controllers.${controllerIndex}.runs.${runIndex}.${distanceConfig.distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distanceConfig.distancePath]}">
               <span>ft</span>
             </div>
           </label>
-          <label class="map-field">
-            <span>Wire size to tape start</span>
-            <select data-path="controllers.${controllerIndex}.runs.${runIndex}.wireSizeToTapeStart">${optionMarkup(
-      wireSizes,
-      run.wireSizeToTapeStart
-    )}</select>
-          </label>
+          ${controlWireTypeField(
+            controller.tape,
+            run.wireSizeToTapeStart,
+            `controllers.${controllerIndex}.runs.${runIndex}.wireSizeToTapeStart`
+          )}
           <label class="map-field">
             <span>Tape length</span>
             <div class="input-with-unit">
@@ -3177,39 +3958,39 @@
       startStatus: sourceRun.startStatus || { label: "No tape", level: "neutral" },
       runStatus: sourceRun.runStatus || { label: "No tape", level: "neutral" },
       specStatus: sourceRun.specStatus || { label: "No tape", level: "neutral" },
+      controlCableStatus: sourceRun.controlCableStatus || { label: "Control", level: "neutral" },
       runOverallStatus: sourceRun.runOverallStatus || { label: "Ready", level: "neutral" },
       distanceGuidance: sourceRun.distanceGuidance || {
         goodTotalPathFt: 0,
         maxTotalPathFt: 0,
-        plannedTotalPathFt: 0
+        plannedTotalPathFt: 0,
+        plannedPowerCableFt: 0,
+        plannedControlCableFt: 0,
+        plannedControlPathFt: 0,
+        powerSpecLimitFt: 0,
+        controlSpecLimitFt: 0,
+        powerWireSize: DEFAULT_POWER_WIRE_SIZE,
+        controlWireSize: DEFAULT_CONTROL_WIRE_SIZE
       }
     };
     const basePath = `tapeRuns.${run.globalRunIndex}`;
+    const distanceConfig = runDistanceFieldConfig(controller, run);
     const distanceGuidance = run.distanceGuidance;
-    const distancePath =
-      controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
-    const distanceLabel =
-      controller.tapeMode === "shared" ? "Distance from tape split to tape start" : "Distance from controller to tape start";
     const dualSuggestion =
       run.tapeLength > run.dualEndRecommendedOverFt && !run.feedBothEnds
         ? `<span class="field-callout warn">Suggested by spec for this length</span>`
         : "";
-    const farEndDistanceLabel =
-      controller.tapeMode === "shared" ? "Distance from tape split to far end" : "Distance from controller to far end";
     const farEndFields = run.feedBothEnds
       ? `
         <div class="far-end-fields">
           <label class="map-field">
-            <span>${labelWithHelp(farEndDistanceLabel)}</span>
+            <span>${labelWithHelp(distanceConfig.farEndDistanceLabel)}</span>
             <div class="input-with-unit">
               <input class="distance-input" data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
               <span>ft</span>
             </div>
           </label>
-          <label class="map-field">
-            <span>Wire size to far end</span>
-            <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
-          </label>
+          ${controlWireTypeField(controller.tape, run.farEndWireSize || run.wireSizeToTapeStart, `${basePath}.farEndWireSize`)}
         </div>
       `
       : "";
@@ -3246,21 +4027,16 @@
               <span>Controller</span>
               <select data-path="${basePath}.zoneIndex">${zoneOptions(run.zoneIndex, state.zoneCount)}</select>
             </label>
+            ${seriesRunSetupFields(controller, run, basePath, controller.runResults?.length || state.tapeRuns.length)}
             <button type="button" class="secondary compact-button" data-run-action="remove" data-run-index="${run.globalRunIndex}">
               <span>Remove run</span>
             </button>
           </div>
 
           <div class="distance-guide">
-            ${resultChip("Recommended Total Wire Distance", `${ft(distanceGuidance.goodTotalPathFt)} at ${GOOD_LIGHT_LOSS_PCT}% loss`, {
-              label: "Recommended",
-              level: "ok"
-            })}
-            ${resultChip("Max Total Wire Distance", `${ft(distanceGuidance.maxTotalPathFt)} at ${MAX_LIGHT_LOSS_PCT}% loss`, {
-              label: "Max",
-              level: "warn"
-            })}
-            ${resultChip("Planned longest path", ft(distanceGuidance.plannedTotalPathFt), run.startStatus)}
+            ${resultChip("Power table reference", `${ft(distanceGuidance.powerSpecLimitFt)} using ${distanceGuidance.powerWireSize} AWG`)}
+            ${resultChip("Control path reference", `${ft(distanceGuidance.controlSpecLimitFt)} using ${controlCableShortLabel(controller.tape, distanceGuidance.controlWireSize)}`)}
+            ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
           </div>
 
           <label class="checkbox-line dual-feed-check">
@@ -3271,22 +4047,23 @@
           ${dualSuggestion}
 
           <div class="wire-map run installer-distance-map">
-            ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
+            ${fieldInstruction(
+              `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
+                controller.tape
+              )}-conductor 22 AWG control wire.`
+            )}
             <div class="map-node">
-              <span>${controller.tapeMode === "shared" ? "Tape split" : `Controller ${run.controllerIndex + 1}`}</span>
+              <span>${distanceConfig.fromNode}</span>
               <strong>To tape</strong>
             </div>
             <label class="map-field">
-              <span>${distanceLabel}</span>
+              <span>${distanceConfig.distanceLabel}</span>
               <div class="input-with-unit">
-                <input class="distance-input" data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+                <input class="distance-input" data-path="${basePath}.${distanceConfig.distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distanceConfig.distancePath]}">
                 <span>ft</span>
               </div>
             </label>
-            <label class="map-field">
-              <span>Wire size to tape</span>
-              <select data-path="${basePath}.wireSizeToTapeStart">${optionMarkup(wireSizes, run.wireSizeToTapeStart)}</select>
-            </label>
+            ${controlWireTypeField(controller.tape, run.wireSizeToTapeStart, `${basePath}.wireSizeToTapeStart`)}
             ${farEndFields}
           </div>
 
@@ -3337,30 +4114,22 @@
       .map((run) => {
         const basePath = `tapeRuns.${run.globalRunIndex}`;
         const stepId = `tape-run-${run.globalRunIndex}`;
-        const distancePath =
-          controller.tapeMode === "shared" ? "distanceSplitToTapeStart" : "distanceControllerToTapeStart";
-        const distanceLabel =
-          controller.tapeMode === "shared" ? "Distance from tape split to tape" : "Distance from controller to tape";
+        const distanceConfig = runDistanceFieldConfig(controller, run);
         const dualSuggestion =
           run.tapeLength > run.dualEndRecommendedOverFt && !run.feedBothEnds
             ? `<span class="field-callout warn">Suggested by spec for this length</span>`
             : "";
-        const farEndDistanceLabel =
-          controller.tapeMode === "shared" ? "Distance from tape split to far end" : "Distance from controller to far end";
         const farEndFields = run.feedBothEnds
           ? `
             <div class="far-end-fields">
               <label class="map-field">
-                <span>${labelWithHelp(farEndDistanceLabel)}</span>
+                <span>${labelWithHelp(distanceConfig.farEndDistanceLabel)}</span>
                 <div class="input-with-unit">
                   <input class="distance-input" data-path="${basePath}.farEndDistance" type="number" min="0" max="500" step="0.1" value="${run.farEndDistance}">
                   <span>ft</span>
                 </div>
               </label>
-              <label class="map-field">
-                <span>Wire size to far end</span>
-                <select data-path="${basePath}.farEndWireSize">${optionMarkup(wireSizes, run.farEndWireSize)}</select>
-              </label>
+          ${controlWireTypeField(controller.tape, run.farEndWireSize || run.wireSizeToTapeStart, `${basePath}.farEndWireSize`)}
             </div>
           `
           : "";
@@ -3384,35 +4153,31 @@
               </label>
               ${dualSuggestion}
             </div>
+            ${seriesRunSetupFields(controller, run, basePath, runs.length)}
             <div class="wire-map run installer-distance-map">
-              ${fieldInstruction("Enter the actual wire distance to this tape run and choose the wire gauge used for that run.")}
+              ${fieldInstruction(
+                `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
+                  controller.tape
+                )}-conductor 22 AWG control wire.`
+              )}
               <div class="map-node">
-                <span>${controller.tapeMode === "shared" ? "Tape split" : `Controller ${controller.controllerIndex + 1}`}</span>
+                <span>${distanceConfig.fromNode}</span>
                 <strong>To tape</strong>
               </div>
               <label class="map-field">
-                <span>${distanceLabel}</span>
+                <span>${distanceConfig.distanceLabel}</span>
                 <div class="input-with-unit">
-                  <input class="distance-input" data-path="${basePath}.${distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distancePath]}">
+                  <input class="distance-input" data-path="${basePath}.${distanceConfig.distancePath}" type="number" min="0" max="500" step="0.1" value="${run[distanceConfig.distancePath]}">
                   <span>ft</span>
                 </div>
               </label>
-              <label class="map-field">
-                <span>Wire size to tape</span>
-                <select data-path="${basePath}.wireSizeToTapeStart">${optionMarkup(wireSizes, run.wireSizeToTapeStart)}</select>
-              </label>
+              ${controlWireTypeField(controller.tape, run.wireSizeToTapeStart, `${basePath}.wireSizeToTapeStart`)}
               ${farEndFields}
             </div>
             <div class="distance-guide">
-              ${resultChip("Recommended Total Wire Distance", `${ft(run.distanceGuidance.goodTotalPathFt)} at ${GOOD_LIGHT_LOSS_PCT}% loss`, {
-                label: "Recommended",
-                level: "ok"
-              })}
-              ${resultChip("Max Total Wire Distance", `${ft(run.distanceGuidance.maxTotalPathFt)} at ${MAX_LIGHT_LOSS_PCT}% loss`, {
-                label: "Max",
-                level: "warn"
-              })}
-              ${resultChip("Planned longest path", `${ft(run.distanceGuidance.plannedTotalPathFt)} at ${pct(run.distanceGuidance.plannedFadePct || 0)} loss`, run.startStatus)}
+              ${resultChip("Power table reference", `${ft(run.distanceGuidance.powerSpecLimitFt)} using ${run.distanceGuidance.powerWireSize} AWG`)}
+              ${resultChip("Control path reference", `${ft(run.distanceGuidance.controlSpecLimitFt)} using ${controlCableShortLabel(controller.tape, run.distanceGuidance.controlWireSize)}`)}
+              ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
             </div>
             ${guideStepNavMarkup(stepId)}
           </section>
@@ -3426,17 +4191,88 @@
     return `
       <div class="fine-tune-runs guide-step-group ${hideFineTuneRuns ? "is-guide-collapsed" : ""}">
         <div class="fine-tune-heading">
-          <strong>Tape wire distances</strong>
-          <span>These start by splitting the recommended total wire distance. Override them if the job layout needs different distances.</span>
+          <strong>Control wire distances</strong>
+          <span>Enter the actual shared trunks, branches, jumpers, and back-feed distances. The tool checks voltage drop along each path; installed control wire total is shown for ordering.</span>
         </div>
         ${runCards}
       </div>
     `;
   }
 
-  function tapeModeOptionsMarkup(controller, index) {
+  function wiringStyleOptionsMarkup(controller, index) {
+    const style = controllerWiringStyle(controller);
+    const seriesParallelCard = supportsSeriesParallel(controller)
+      ? `
+        <label class="wiring-style-choice">
+          <input data-path="controllers.${index}.wiringStyle" type="radio" name="wiringStyle${index}" value="series-parallel" ${
+            style === "series-parallel" ? "checked" : ""
+          }>
+          <span class="control-choice-copy">
+            <strong>Series-Parallel</strong>
+            <span>The controller splits into branches, and at least one branch is chained end-to-end.</span>
+          </span>
+          <img
+            class="wiring-style-image"
+            src="assets/series-parallel.png"
+            alt="Series-parallel tape runs from one wireless controller"
+            data-zoom-image="assets/series-parallel.png"
+            data-zoom-title="Series-Parallel tape runs"
+            role="button"
+            tabindex="0"
+          >
+        </label>
+      `
+      : "";
     return `
-      <div class="segmented control-wire-options" role="radiogroup" aria-label="Tape wiring type">
+      <div class="segmented wiring-style-options" role="radiogroup" aria-label="Tape install style">
+        <label class="wiring-style-choice">
+          <input data-path="controllers.${index}.wiringStyle" type="radio" name="wiringStyle${index}" value="series" ${
+      style === "series" ? "checked" : ""
+    }>
+          <span class="control-choice-copy">
+            <strong>Series (end to end)</strong>
+            <span>One tape run feeds the next with wire jumpers between runs.</span>
+          </span>
+          <img
+            class="wiring-style-image"
+            src="assets/series.png"
+            alt="Series end-to-end tape runs from one wireless controller"
+            data-zoom-image="assets/series.png"
+            data-zoom-title="Series end-to-end tape runs"
+            role="button"
+            tabindex="0"
+          >
+        </label>
+        <label class="wiring-style-choice">
+          <input data-path="controllers.${index}.wiringStyle" type="radio" name="wiringStyle${index}" value="parallel" ${
+      style === "parallel" ? "checked" : ""
+    }>
+          <span class="control-choice-copy">
+            <strong>Parallel</strong>
+            <span>Each tape run starts from the controller or from a split.</span>
+          </span>
+          <img
+            class="wiring-style-image"
+            src="assets/parallel.png"
+            alt="Parallel tape runs from one wireless controller"
+            data-zoom-image="assets/parallel.png"
+            data-zoom-title="Parallel tape runs"
+            role="button"
+            tabindex="0"
+          >
+        </label>
+        ${seriesParallelCard}
+      </div>
+    `;
+  }
+
+  function parallelTapeModeOptionsMarkup(controller, index) {
+    return `
+      <div class="control-subchoice">
+        <strong>For parallel wiring, do these tape runs share wire before they split?</strong>
+        <span>Choose separate unless multiple runs share the same control wire before branching.</span>
+      </div>
+      <div class="segmented control-wire-options" role="radiogroup" aria-label="Parallel tape wiring type">
         <label class="control-wire-choice">
           <input data-path="controllers.${index}.tapeMode" type="radio" name="tapeMode${index}" value="direct" ${
       controller.tapeMode === "direct" ? "checked" : ""
@@ -3475,6 +4311,23 @@
         </label>
       </div>
     `;
+  }
+
+  function seriesBranchOptions(selected, runCount) {
+    const count = Math.max(2, Math.min(MAX_RUNS, runCount || 2));
+    return Array.from({ length: count }, (_, index) => {
+      const selectedAttr = index === Math.round(number(selected)) ? " selected" : "";
+      return `<option value="${index}"${selectedAttr}>Branch ${index + 1}</option>`;
+    }).join("");
+  }
+
+  function seriesPositionOptions(selected, runCount) {
+    const count = Math.max(2, Math.min(MAX_RUNS, runCount || 2));
+    return Array.from({ length: count }, (_, index) => {
+      const selectedAttr = index === Math.round(number(selected)) ? " selected" : "";
+      const suffix = index === 0 ? "st" : index === 1 ? "nd" : index === 2 ? "rd" : "th";
+      return `<option value="${index}"${selectedAttr}>${index + 1}${suffix}</option>`;
+    }).join("");
   }
 
   function renderControllerPlacement(controller, recommendation) {
@@ -3530,16 +4383,17 @@
             showTapeSplitQuestion
               ? `
           <div id="controller-${index + 1}-tape-wiring" class="advanced-card installer-advanced visible-wiring-choice guide-step ${guideStepClass(
-                tapeSplitStepId
-              )}" data-guide-step-id="${tapeSplitStepId}">
+              tapeSplitStepId
+            )}" data-guide-step-id="${tapeSplitStepId}">
             <div class="advanced-top">
               <div class="advanced-title">
-                <strong>Do these tape runs share wire before they split?</strong>
-                <span>Choose direct wiring unless multiple runs share wire before separating.</span>
+                <strong>How are these tape runs installed from this controller?</strong>
+                <span>This setting only applies to Controller ${index + 1}; each controller can use a different layout.</span>
               </div>
-              ${tapeModeOptionsMarkup(controller, index)}
+              ${wiringStyleOptionsMarkup(controller, index)}
             </div>
-            ${renderTapeSplitFields(controller)}
+            ${controllerWiringStyle(controller) === "parallel" ? parallelTapeModeOptionsMarkup(controller, index) : ""}
+            ${controllerUsesTapeSplit(controller) ? renderTapeSplitFields(controller) : ""}
             ${guideStepNavMarkup(tapeSplitStepId)}
           </div>
           `
@@ -3581,16 +4435,17 @@
             showTapeSplitQuestion
               ? `
           <div id="controller-${index + 1}-tape-wiring" class="advanced-card visible-wiring-choice guide-step ${guideStepClass(
-                tapeSplitStepId
-              )}" data-guide-step-id="${tapeSplitStepId}">
+              tapeSplitStepId
+            )}" data-guide-step-id="${tapeSplitStepId}">
             <div class="advanced-top">
               <div class="advanced-title">
-                <strong>Do these tape runs share wire before they split?</strong>
-                <span>Choose direct wiring unless multiple runs share wire before separating.</span>
+                <strong>How are these tape runs installed from this controller?</strong>
+                <span>This setting only applies to Controller ${index + 1}; each controller can use a different layout.</span>
               </div>
-              ${tapeModeOptionsMarkup(controller, index)}
+              ${wiringStyleOptionsMarkup(controller, index)}
             </div>
-            ${renderTapeSplitFields(controller)}
+            ${controllerWiringStyle(controller) === "parallel" ? parallelTapeModeOptionsMarkup(controller, index) : ""}
+            ${controllerUsesTapeSplit(controller) ? renderTapeSplitFields(controller) : ""}
             ${guideStepNavMarkup(tapeSplitStepId)}
           </div>
           `
@@ -3678,36 +4533,42 @@
   }
 
   function wireDistanceGuidanceHtml(result) {
-    const runs = result.tapeRunResults.filter((run) => run.tapeLength > 0);
+    const controllers = result.controllers.filter((controller) => controller.enabled && controller.totalTapeLength > 0);
 
-    if (!runs.length) return "Add tape runs to see distance guidance.";
+    if (!controllers.length) return "Add tape runs to see distance guidance.";
 
-    return runs
-      .map(
-        (run) => `
+    return controllers
+      .map((controller) => {
+        const activeRuns = controller.runResults.filter((run) => run.tapeLength > 0);
+        const longestControlPath = Math.max(
+          0,
+          ...activeRuns.map((run) => number(run.distanceGuidance?.plannedControlPathFt))
+        );
+        const worstStartFade = Math.max(0, ...activeRuns.map((run) => number(run.fadeAtTapeStartPct)));
+        return `
           <span>
-            <strong>${escapeHtml(run.runName)}</strong>
-            Recommended ${ft(run.distanceGuidance.goodTotalPathFt)} (${GOOD_LIGHT_LOSS_PCT}% loss), max ${ft(
-          run.distanceGuidance.maxTotalPathFt
-        )} (${MAX_LIGHT_LOSS_PCT}% loss), planned ${ft(run.distanceGuidance.plannedTotalPathFt)}
+            <strong>Controller ${controller.controllerIndex + 1}</strong>
+            Power path: ${ft(controller.powerCableDistanceFt)} installed.
+            Control: ${ft(controller.controlCableDistanceFt)} installed, ${ft(longestControlPath)} longest checked path.
+            Worst start loss: ${pct(worstStartFade)}.
           </span>
-        `
-      )
+        `;
+      })
       .join("");
   }
 
-  function totalWireHtml(result) {
-    if (!result.totalWireLength) return `<strong>0 ft</strong><div class="metric-detail-list">Add distances to spec wire.</div>`;
+  function wireSummaryHtml(totalLength, lengths, emptyText) {
+    if (!totalLength) return `<strong>0 ft</strong><div class="metric-detail-list">${escapeHtml(emptyText)}</div>`;
 
-    const details = result.wireLengths
+    const details = lengths
       .map(
         (item) => `
-          <span><strong>${item.wireSize} AWG</strong>${ft(item.length)}</span>
+          <span><strong>${escapeHtml(item.label || `${item.wireSize} AWG`)}</strong>${ft(item.length)}</span>
         `
       )
       .join("");
 
-    return `<strong>${ft(result.totalWireLength)}</strong><div class="metric-detail-list">${details}</div>`;
+    return `<strong>${ft(totalLength)}</strong><div class="metric-detail-list">${details}</div>`;
   }
 
   function isPowerSupplySizingIssue(item) {
@@ -3773,19 +4634,24 @@
       ["Suggested controllers", recommendation.controllerCount],
       ["Total tape", ft(liveResult.totalTapeLength)],
       ["Estimated total load", watts(liveResult.powerW)],
-      ["Default wire size", `${DEFAULT_WIRE_SIZE} AWG`]
+      ["Default power wire", `${DEFAULT_POWER_WIRE_SIZE} AWG`],
+      ["Default control wire", controlCableLabel(recommendation.tape, DEFAULT_CONTROL_WIRE_SIZE)]
     ]
       .map(([label, value]) => `<div class="metric-row"><span>${label}</span><strong>${value}</strong></div>`)
       .join("");
-    const totalWireLengthHtml = `
+    const wireLengthHtml = `
       <div class="metric-row metric-row-stack">
-        <span>Max total wire being spec'd</span>
-        ${totalWireHtml(result)}
+        <span>Power wire being spec'd</span>
+        ${wireSummaryHtml(result.totalPowerWireLength, result.powerWireLengths, "Add power distances to spec power wire.")}
+      </div>
+      <div class="metric-row metric-row-stack">
+        <span>Control wire being spec'd</span>
+        ${wireSummaryHtml(result.totalControlWireLength, result.controlWireLengths, "Add control distances to spec control wire.")}
       </div>
     `;
     const wireGuidanceHtml = `
       <div class="metric-row metric-row-stack">
-        <span>Wire distance guidance</span>
+        <span>Power and control distance guidance</span>
         <div class="metric-detail-list">${wireDistanceGuidanceHtml(result)}</div>
       </div>
     `;
@@ -3800,8 +4666,8 @@
       )
       .join("")}</div>`;
 
-    els.summaryMetrics.innerHTML = metricsHtml + totalWireLengthHtml + wireGuidanceHtml;
-    els.mobileSummaryMetrics.innerHTML = metricsHtml + totalWireLengthHtml + wireGuidanceHtml;
+    els.summaryMetrics.innerHTML = metricsHtml + wireLengthHtml + wireGuidanceHtml;
+    els.mobileSummaryMetrics.innerHTML = metricsHtml + wireLengthHtml + wireGuidanceHtml;
     els.issueList.innerHTML = issuesHtml;
     els.mobileIssueList.innerHTML = issuesHtml;
     const hasFixes = fixIssues.length > 0;
@@ -3840,13 +4706,15 @@
     if (assignmentChanged) {
       recommendation = buildRecommendation(state);
     }
+    const seriesPositionChanged = applySeriesPositionDefaults(state);
     let result = evaluate(state);
     const tapeModeChanged = applySingleRunTapeModeDefaults(state, result);
     if (tapeModeChanged) {
+      applySeriesPositionDefaults(state);
       result = evaluate(state);
     }
     const distanceChanged = applyRecommendedDistanceDefaults(state, result);
-    if (assignmentChanged || tapeModeChanged || distanceChanged) {
+    if (assignmentChanged || seriesPositionChanged || tapeModeChanged || distanceChanged) {
       result = evaluate(state);
     }
 
@@ -3959,11 +4827,32 @@
         run.controllerIndex = controllerIndex;
         run.zoneIndexAuto = false;
         run.controllerIndexAuto = false;
+        run.seriesBranchIndexAuto = true;
+        run.seriesPositionAuto = true;
       }
       return;
     }
 
-    match = path.match(/^tapeRuns\.(\d+)\.(controllerIndex|distanceControllerToTapeStart|distanceSplitToTapeStart|farEndDistance)$/);
+    match = path.match(/^tapeRuns\.(\d+)\.seriesBranchIndex$/);
+    if (match) {
+      const run = state.tapeRuns[Number(match[1])];
+      if (run) {
+        run.seriesBranchIndexAuto = false;
+        run.seriesPositionAuto = true;
+      }
+      return;
+    }
+
+    match = path.match(/^tapeRuns\.(\d+)\.seriesPosition$/);
+    if (match) {
+      const run = state.tapeRuns[Number(match[1])];
+      if (run) {
+        run.seriesPositionAuto = false;
+      }
+      return;
+    }
+
+    match = path.match(/^tapeRuns\.(\d+)\.(controllerIndex|distanceControllerToTapeStart|distanceSplitToTapeStart|distancePreviousToTapeStart|farEndDistance)$/);
     if (match) {
       const run = state.tapeRuns[Number(match[1])];
       if (run) {
@@ -4002,6 +4891,8 @@
         run.zoneIndex = suggestedZoneIndex(index, state.tapeRuns.length, state.zoneCount);
         run.controllerIndex = run.zoneIndex;
         run.controllerIndexAuto = true;
+        run.seriesBranchIndexAuto = true;
+        run.seriesPositionAuto = true;
       }
     });
     activePreset = "custom";
@@ -4015,10 +4906,14 @@
         run.zoneIndex = suggestedZoneIndex(index, state.tapeRuns.length, state.zoneCount);
         run.controllerIndex = run.zoneIndex;
         run.controllerIndexAuto = true;
+        run.seriesBranchIndexAuto = true;
+        run.seriesPositionAuto = true;
       } else {
         run.zoneIndex = Math.min(state.zoneCount - 1, Math.max(0, Math.round(number(run.zoneIndex))));
         run.controllerIndex = run.zoneIndex;
         run.controllerIndexAuto = false;
+        run.seriesBranchIndexAuto = true;
+        run.seriesPositionAuto = true;
       }
     });
     activePreset = "custom";
@@ -4104,7 +4999,13 @@
         const run = state.tapeRuns[Number(match[1])];
         const controller = state.controllers[Number(run.controllerIndex)] || blankController();
         if (!number(run.farEndDistance)) {
-          run.farEndDistance = controller.tapeMode === "shared" ? run.distanceSplitToTapeStart : run.distanceControllerToTapeStart;
+          const style = controllerWiringStyle(controller);
+          run.farEndDistance =
+            style === "series-parallel" || (style === "parallel" && controller.tapeMode === "shared")
+              ? run.distanceSplitToTapeStart
+              : style === "series" && number(run.distancePreviousToTapeStart)
+                ? run.distancePreviousToTapeStart
+                : run.distanceControllerToTapeStart;
         }
         if (!run.farEndWireSize) {
           run.farEndWireSize = run.wireSizeToTapeStart;
@@ -4343,7 +5244,7 @@
     blank.powerMode = "separate";
     blank.zoneCount = 1;
     blank.sharedPower.distance = 0;
-    blank.sharedPower.wireSize = DEFAULT_WIRE_SIZE;
+    blank.sharedPower.wireSize = DEFAULT_POWER_WIRE_SIZE;
     blank.tapeRuns = [blankRun()];
     blank.controllers.forEach((controller) => {
       controller.enabled = false;
@@ -4355,9 +5256,9 @@
       controller.distanceControllerToTapeSplit = 0;
       controller.extraShortTapeLength = 0;
       controller.tapeMode = "direct";
-      controller.wireSizePowerToController = DEFAULT_WIRE_SIZE;
-      controller.wireSizeSplitToController = DEFAULT_WIRE_SIZE;
-      controller.wireSizeControllerToTapeSplit = DEFAULT_WIRE_SIZE;
+      controller.wireSizePowerToController = DEFAULT_POWER_WIRE_SIZE;
+      controller.wireSizeSplitToController = DEFAULT_POWER_WIRE_SIZE;
+      controller.wireSizeControllerToTapeSplit = DEFAULT_CONTROL_WIRE_SIZE;
       controller.runs = [blankRun()];
     });
     return blank;
