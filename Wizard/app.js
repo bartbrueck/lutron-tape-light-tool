@@ -22,7 +22,7 @@
   const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
-  const APP_VERSION = "wizard-steps-54";
+  const APP_VERSION = "wizard-steps-57";
   const GITHUB_ISSUE_URL = "https://github.com/bartbrueck/lutron-tape-light-tool/issues/new";
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
@@ -4112,7 +4112,6 @@
           </div>
 
           <div class="distance-guide">
-            ${resultChip("Power table reference", `${ft(distanceGuidance.powerSpecLimitFt)} using ${distanceGuidance.powerWireSize} AWG`)}
             ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
           </div>
 
@@ -4252,7 +4251,6 @@
               ${farEndFields}
             </div>
             <div class="distance-guide">
-              ${resultChip("Power table reference", `${ft(run.distanceGuidance.powerSpecLimitFt)} using ${run.distanceGuidance.powerWireSize} AWG`)}
               ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
             </div>
             ${guideStepNavMarkup(stepId)}
@@ -4634,7 +4632,7 @@
   }
 
   function wireSummaryHtml(totalLength, lengths, emptyText) {
-    if (!totalLength) return `<strong>0 ft</strong><div class="metric-detail-list">${escapeHtml(emptyText)}</div>`;
+    if (!totalLength) return `<div class="metric-detail-list"><span>${escapeHtml(emptyText)}</span></div>`;
 
     const details = lengths
       .map(
@@ -4644,7 +4642,7 @@
       )
       .join("");
 
-    return `<strong>${ft(totalLength)}</strong><div class="metric-detail-list">${details}</div>`;
+    return `<div class="metric-detail-list">${details}</div>`;
   }
 
   function isPowerSupplySizingIssue(item) {
@@ -4787,7 +4785,6 @@
     const metricsHtml = [
       ["Tape product", recommendation.tape.label],
       ["Suggested power supplies", recommendation.powerSupplyCount],
-      ["Power supplies in use", result.interfaceTapeLimits.length || recommendation.powerSupplyCount],
       ["Suggested controllers", recommendation.controllerCount],
       ["Total tape", ft(liveResult.totalTapeLength)],
       ["Estimated total load", watts(liveResult.powerW)],
