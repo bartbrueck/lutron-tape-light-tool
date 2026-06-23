@@ -4,6 +4,7 @@
   const POWER_LIMIT_W = 96;
   const GOOD_LIGHT_LOSS_PCT = 25;
   const MAX_LIGHT_LOSS_PCT = 40;
+  const SHOW_REVIEW_SUMMARY_TAB = false;
   const HELP_MAX_POWER_WIRE_DISTANCE = "Reference power wire distance from the Lutron table for the selected tape load and wire gauge. Final Good / Review / Fix status is calculated from voltage drop across the actual power and control wire path.";
   const HELP_MAX_CONTROL_WIRE_DISTANCE = "Reference control wire path distance from the Lutron table. The tool checks voltage drop along the shared trunk, branches, jumpers, and back-feed paths instead of treating installed control wire as one simple total.";
   const HELP_FAR_END_DISTANCE = "This is the back feed wire distance from the controller to the far end of the led tape.";
@@ -21,9 +22,15 @@
   const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
+  const APP_VERSION = "wizard-steps-54";
+  const GITHUB_ISSUE_URL = "https://github.com/bartbrueck/lutron-tape-light-tool/issues/new";
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
   const DONE_CELEBRATION_STORAGE_KEY = "trace-done-celebration-count";
+  const SYSTEM_MAP_DEFAULT_ZOOM = 0.85;
+  const SYSTEM_MAP_MIN_ZOOM = 0.75;
+  const SYSTEM_MAP_MAX_ZOOM = 2.5;
+  const SYSTEM_MAP_ZOOM_STEP = 0.1;
 
   const tapeTypes = [
     {
@@ -216,6 +223,7 @@
   let activePreset = "blank";
   const collapsedControllers = new Set();
   let mapPan = null;
+  let systemMapZoom = SYSTEM_MAP_DEFAULT_ZOOM;
   let suppressNextMapJump = false;
   let activeWizardStep = 1;
   let activeReviewTab = "diagram";
@@ -253,6 +261,10 @@
     systemMap: document.querySelector("#systemMap"),
     panMapLeft: document.querySelector("#panMapLeft"),
     panMapRight: document.querySelector("#panMapRight"),
+    zoomMapOut: document.querySelector("#zoomMapOut"),
+    resetMapZoom: document.querySelector("#resetMapZoom"),
+    zoomMapIn: document.querySelector("#zoomMapIn"),
+    mapZoomLabel: document.querySelector("#mapZoomLabel"),
     overallStatus: document.querySelector("#overallStatus"),
     overallPill: document.querySelector("#overallPill"),
     mobileOverallStatus: document.querySelector("#mobileOverallStatus"),
@@ -264,6 +276,7 @@
     issueSection: document.querySelector("#issueTitle")?.closest(".issue-section"),
     mobileIssueSection: document.querySelector("#mobileIssueTitle")?.closest(".issue-section"),
     livePanels: Array.from(document.querySelectorAll(".results-panel, .mobile-results-panel")),
+    issueReportLinks: Array.from(document.querySelectorAll("[data-report-issue]")),
     statusStrip: document.querySelector("#statusStrip"),
     wizardSteps: Array.from(document.querySelectorAll(".wizard-step")),
     stepNextButtons: Array.from(document.querySelectorAll(".step-next")),
@@ -364,18 +377,21 @@
   }
 
   function setReviewTab(tabName) {
-    const nextTab = tabName === "summary" ? "summary" : "diagram";
+    const nextTab = SHOW_REVIEW_SUMMARY_TAB && tabName === "summary" ? "summary" : "diagram";
     activeReviewTab = nextTab;
 
     els.reviewTabButtons.forEach((button) => {
+      const isAvailable = SHOW_REVIEW_SUMMARY_TAB || button.dataset.reviewTab !== "summary";
       const isActive = button.dataset.reviewTab === nextTab;
+      button.hidden = !isAvailable;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-selected", isActive ? "true" : "false");
-      button.tabIndex = isActive ? 0 : -1;
+      button.tabIndex = isAvailable && isActive ? 0 : -1;
     });
 
     els.reviewTabPanels.forEach((panel) => {
-      const isActive = panel.dataset.reviewPanel === nextTab;
+      const isAvailable = SHOW_REVIEW_SUMMARY_TAB || panel.dataset.reviewPanel !== "summary";
+      const isActive = isAvailable && panel.dataset.reviewPanel === nextTab;
       panel.classList.toggle("is-active", isActive);
       panel.hidden = !isActive;
     });
@@ -1063,6 +1079,36 @@
       : Math.max(0, number(run.distanceControllerToTapeStart));
   }
 
+  function effectiveRunCurrent(run) {
+    const current = Math.max(0, number(run.tapeCurrent));
+    return run.feedBothEnds ? current / 2 : current;
+  }
+
+  function controlSegmentCurrent(controller, run) {
+    const style = controllerWiringStyle(controller);
+    if (style !== "series" && style !== "series-parallel") {
+      return effectiveRunCurrent(run);
+    }
+
+    const branchRuns = orderedSeriesBranch(controller, run);
+    const runIndex = seriesRunIndex(controller, run);
+    return branchRuns
+      .slice(runIndex)
+      .reduce((sum, downstreamRun) => sum + effectiveRunCurrent(downstreamRun), 0);
+  }
+
+  function seriesBranchTapeLength(controller, run) {
+    if (!isSeriesWiring(controller)) return Math.max(0, number(run.tapeLength));
+    return orderedSeriesBranch(controller, run).reduce((sum, branchRun) => sum + Math.max(0, number(branchRun.tapeLength)), 0);
+  }
+
+  function seriesBranchHasDualFeed(controller, run) {
+    if (!isSeriesWiring(controller)) return Boolean(run.feedBothEnds);
+    const branchRuns = orderedSeriesBranch(controller, run);
+    const lastRun = branchRuns[branchRuns.length - 1];
+    return Boolean(lastRun?.feedBothEnds);
+  }
+
   function internalFadeForSegment(lengthFt, currentA, tape) {
     return tape.droopPerVolt * (currentA * ((lengthFt / FULL_REEL_FT) * tape.calculatedResistance)) * 100;
   }
@@ -1180,6 +1226,7 @@
           tape: controller.tape,
           totalTapeLength: 0,
           powerW: 0,
+          controllerCount: 0,
           controllerIndexes: [],
           controllerNumbers: []
         };
@@ -1188,6 +1235,7 @@
 
       current.totalTapeLength += controller.totalTapeLength;
       current.powerW += controller.tapePowerW;
+      current.controllerCount += 1;
       current.controllerIndexes.push(controller.controllerIndex);
       current.controllerNumbers.push(controller.controllerIndex + 1);
     });
@@ -1197,9 +1245,13 @@
       .map((item) => ({
         ...item,
         limitFt: item.tape.maxInterfaceFt,
-        overLimit: item.totalTapeLength > item.tape.maxInterfaceFt || item.powerW > POWER_LIMIT_W,
+        overLimit:
+          item.totalTapeLength > item.tape.maxInterfaceFt ||
+          item.powerW > POWER_LIMIT_W ||
+          item.controllerCount > MAX_CONTROLLERS_PER_POWER_SUPPLY,
         tapeOverLimit: item.totalTapeLength > item.tape.maxInterfaceFt,
-        powerOverLimit: item.powerW > POWER_LIMIT_W
+        powerOverLimit: item.powerW > POWER_LIMIT_W,
+        controllerOverLimit: item.controllerCount > MAX_CONTROLLERS_PER_POWER_SUPPLY
       }));
   }
 
@@ -1839,7 +1891,7 @@
     branchRuns.slice(0, runIndex).forEach((branchRun, segmentIndex) => {
       const downstreamCurrent = branchRuns
         .slice(segmentIndex)
-        .reduce((sum, downstreamRun) => sum + Math.max(0, number(downstreamRun.tapeCurrent)), 0);
+        .reduce((sum, downstreamRun) => sum + effectiveRunCurrent(downstreamRun), 0);
       dropV += ohmsForWire(branchRun.wireSizeToTapeStart) * runDistance(controller, branchRun) * downstreamCurrent;
     });
 
@@ -1885,11 +1937,13 @@
       coefficients.push(ohmsForWire(controller.wireSizeControllerToTapeSplit) * controller.totalTapeCurrent);
     }
 
-    const branchCurrent = run.feedBothEnds ? run.tapeCurrent / 2 : run.tapeCurrent;
+    const branchCurrent = controlSegmentCurrent(controller, run);
     coefficients.push(ohmsForWire(run.wireSizeToTapeStart) * branchCurrent);
 
     if (run.feedBothEnds) {
-      coefficients.push(ohmsForWire(run.farEndWireSize || run.wireSizeToTapeStart) * branchCurrent);
+      coefficients.push(
+        ohmsForWire(run.farEndWireSize || run.wireSizeToTapeStart) * Math.max(0, number(run.tapeCurrent)) / 2
+      );
     }
 
     const fadePctPerFt = Math.max(...coefficients, 0) * controller.tape.droopPerVolt * 100;
@@ -2056,151 +2110,150 @@
     const activeControllers = result.controllers.filter((controller) => controller.enabled);
     const activeRuns = result.tapeRunResults.filter((run) => run.tapeLength > 0);
     if (!activeRuns.length) return false;
-
-    let changed = false;
-    const controllerPowerLimits = activeControllers
-      .map((controller) => number(controller.powerCableLimitFt))
-      .filter((distance) => distance > 0);
-    const sharedPowerDistance =
-      inputState.powerMode === "shared" && controllerPowerLimits.length ? Math.min(...controllerPowerLimits) / 2 : 0;
+    const autoTargets = [];
+    const addTarget = (target, valueKey, autoKey, path, coefficient) => {
+      const safeCoefficient = Math.max(0, number(coefficient));
+      if (!target || target[autoKey] === false || safeCoefficient <= 0) return;
+      autoTargets.push({ target, valueKey, autoKey, path, coefficient: safeCoefficient });
+    };
 
     if (inputState.powerMode === "shared") {
-      changed = setAutoDistance(inputState.sharedPower, "distance", "distanceAuto", sharedPowerDistance) || changed;
+      addTarget(
+        inputState.sharedPower,
+        "distance",
+        "distanceAuto",
+        "sharedPower.distance",
+        ohmsForWire(inputState.sharedPower.wireSize) * result.totalCurrent
+      );
     }
 
     activeControllers.forEach((controller) => {
-      const controllerState = inputState.controllers[controller.controllerIndex];
-      const controllerRuns = controller.runResults.filter(
-        (run) => run.tapeLength > 0 && number(run.distanceGuidance.controlSpecLimitFt) > 0
-      );
+      const controllerIndex = controller.controllerIndex;
+      const controllerState = inputState.controllers[controllerIndex];
+      const controllerRuns = controller.runResults.filter((run) => run.tapeLength > 0);
       if (!controllerState || !controllerRuns.length) return;
 
-      const powerLimit = number(controller.powerCableLimitFt);
-      const powerBranchDistance =
-        inputState.powerMode === "shared" ? Math.max(0, powerLimit - sharedPowerDistance) : powerLimit;
-
-      if (inputState.powerMode === "shared" && powerLimit > 0) {
-        changed =
-          setAutoDistance(controllerState, "distanceSplitToController", "distanceSplitToControllerAuto", powerBranchDistance) ||
-          changed;
-      } else if (powerLimit > 0) {
-        changed =
-          setAutoDistance(controllerState, "distancePowerToController", "distancePowerToControllerAuto", powerBranchDistance) ||
-          changed;
+      if (inputState.powerMode === "shared") {
+        addTarget(
+          controllerState,
+          "distanceSplitToController",
+          "distanceSplitToControllerAuto",
+          `controllers.${controllerIndex}.distanceSplitToController`,
+          ohmsForWire(controller.wireSizeSplitToController) * controller.inputCurrent
+        );
+      } else {
+        addTarget(
+          controllerState,
+          "distancePowerToController",
+          "distancePowerToControllerAuto",
+          `controllers.${controllerIndex}.distancePowerToController`,
+          ohmsForWire(controller.wireSizePowerToController) * controller.inputCurrent
+        );
       }
 
-      const controlLimit = number(controller.controlCableLimitFt);
+      if (controllerUsesTapeSplit(controller)) {
+        addTarget(
+          controllerState,
+          "distanceControllerToTapeSplit",
+          "distanceControllerToTapeSplitAuto",
+          `controllers.${controllerIndex}.distanceControllerToTapeSplit`,
+          ohmsForWire(controller.wireSizeControllerToTapeSplit) * controller.totalTapeCurrent
+        );
+      }
+
       const wiringStyle = controllerWiringStyle(controller);
-      const seriesGroups = orderedSeriesGroups(controller);
-      const segmentCount =
-        isSeriesWiring(controller)
-          ? Math.max(
-              1,
-              seriesGroups.reduce((sum, group) => sum + group.runs.length, 0) +
-                controllerRuns.reduce((sum, run) => sum + (run.feedBothEnds ? 1 : 0), 0)
-            )
-          : Math.max(1, controllerRuns.reduce((sum, run) => sum + (run.feedBothEnds ? 2 : 1), 0));
-      const sharedControlDistance =
-        wiringStyle === "series-parallel" && controlLimit > 0 ? Math.min(1, controlLimit / (segmentCount + 1)) : 0;
-      const controlPathBudget =
-        controlLimit > 0 ? Math.max(0, controlLimit - sharedControlDistance) / segmentCount : 0;
-      const parallelSharedDistance =
-        wiringStyle === "parallel" && controller.tapeMode === "shared" && controlPathBudget > 0
-          ? Math.min(1, controlPathBudget / 2)
-          : 0;
-      const controlBranchDistance = Math.max(0, controlPathBudget - parallelSharedDistance);
-
-      if (wiringStyle === "series-parallel") {
-        changed =
-          setAutoDistance(
-            controllerState,
-            "distanceControllerToTapeSplit",
-            "distanceControllerToTapeSplitAuto",
-            sharedControlDistance,
-            { rounding: "floor" }
-          ) ||
-          changed;
-      } else if (wiringStyle === "parallel" && controller.tapeMode === "shared") {
-        changed =
-          setAutoDistance(
-            controllerState,
-            "distanceControllerToTapeSplit",
-            "distanceControllerToTapeSplitAuto",
-            parallelSharedDistance,
-            { rounding: "floor" }
-          ) ||
-          changed;
-      }
-
       controllerRuns.forEach((run) => {
         const stateRun = inputState.tapeRuns[run.globalRunIndex];
         if (!stateRun) return;
 
-        if (wiringStyle === "series") {
-          if (seriesRunIndex(controller, run) === 0) {
-            changed =
-              setAutoDistance(
-                stateRun,
-                "distanceControllerToTapeStart",
-                "distanceControllerToTapeStartAuto",
-                controlPathBudget,
-                { rounding: "floor" }
-              ) ||
-              changed;
-          } else {
-            changed =
-              setAutoDistance(
-                stateRun,
-                "distancePreviousToTapeStart",
-                "distancePreviousToTapeStartAuto",
-                controlPathBudget,
-                { rounding: "floor" }
-              ) ||
-              changed;
-          }
+        let valueKey = "distanceControllerToTapeStart";
+        let autoKey = "distanceControllerToTapeStartAuto";
+        if (wiringStyle === "series" && seriesRunIndex(controller, run) > 0) {
+          valueKey = "distancePreviousToTapeStart";
+          autoKey = "distancePreviousToTapeStartAuto";
         } else if (wiringStyle === "series-parallel") {
-          if (seriesRunIndex(controller, run) === 0) {
-            changed =
-              setAutoDistance(stateRun, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto", controlPathBudget, {
-                rounding: "floor"
-              }) ||
-              changed;
+          if (seriesRunIndex(controller, run) > 0) {
+            valueKey = "distancePreviousToTapeStart";
+            autoKey = "distancePreviousToTapeStartAuto";
           } else {
-            changed =
-              setAutoDistance(
-                stateRun,
-                "distancePreviousToTapeStart",
-                "distancePreviousToTapeStartAuto",
-                controlPathBudget,
-                { rounding: "floor" }
-              ) ||
-              changed;
+            valueKey = "distanceSplitToTapeStart";
+            autoKey = "distanceSplitToTapeStartAuto";
           }
-        } else if (controller.tapeMode === "shared") {
-          changed =
-            setAutoDistance(stateRun, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto", controlBranchDistance, {
-              rounding: "floor"
-            }) ||
-            changed;
-        } else {
-          changed =
-            setAutoDistance(
-              stateRun,
-              "distanceControllerToTapeStart",
-              "distanceControllerToTapeStartAuto",
-              controlBranchDistance,
-              { rounding: "floor" }
-            ) ||
-            changed;
+        } else if (wiringStyle === "parallel" && controller.tapeMode === "shared") {
+          valueKey = "distanceSplitToTapeStart";
+          autoKey = "distanceSplitToTapeStartAuto";
         }
 
+        addTarget(
+          stateRun,
+          valueKey,
+          autoKey,
+          `tapeRuns.${run.globalRunIndex}.${valueKey}`,
+          ohmsForWire(run.wireSizeToTapeStart) * controlSegmentCurrent(controller, run)
+        );
+
         if (run.feedBothEnds) {
-          changed =
-            setAutoDistance(stateRun, "farEndDistance", "farEndDistanceAuto", controlBranchDistance, {
-              rounding: "floor"
-            }) || changed;
+          addTarget(
+            stateRun,
+            "farEndDistance",
+            "farEndDistanceAuto",
+            `tapeRuns.${run.globalRunIndex}.farEndDistance`,
+            ohmsForWire(run.farEndWireSize || run.wireSizeToTapeStart) * Math.max(0, number(run.tapeCurrent)) / 2
+          );
         }
       });
+    });
+
+    if (!autoTargets.length) return false;
+
+    const writePath = (root, path, value) => {
+      const parts = path.split(".");
+      let target = root;
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const key = /^\d+$/.test(parts[index]) ? Number(parts[index]) : parts[index];
+        target = target[key];
+      }
+      target[parts[parts.length - 1]] = value;
+    };
+    const distanceForScale = (target, scale) =>
+      floorDistance(Math.min(500, scale / Math.max(target.coefficient, 0.0000001)));
+    const resultForScale = (scale) => {
+      const candidate = clone(inputState);
+      autoTargets.forEach((target) => writePath(candidate, target.path, distanceForScale(target, scale)));
+      return evaluate(candidate);
+    };
+    const worstStartLoss = (candidateResult) =>
+      Math.max(
+        0,
+        ...candidateResult.tapeRunResults
+          .filter((run) => run.tapeLength > 0)
+          .map((run) => Math.max(0, number(run.fadeAtTapeStartPct)))
+      );
+
+    const targetLossPct = GOOD_LIGHT_LOSS_PCT - 0.1;
+    let lowScale = 0;
+    let highScale = 64;
+    if (worstStartLoss(resultForScale(0)) < targetLossPct) {
+      for (let iteration = 0; iteration < 22; iteration += 1) {
+        const midScale = (lowScale + highScale) / 2;
+        if (worstStartLoss(resultForScale(midScale)) < targetLossPct) {
+          lowScale = midScale;
+        } else {
+          highScale = midScale;
+        }
+      }
+    }
+
+    let changed = false;
+    autoTargets.forEach((target) => {
+      changed =
+        setAutoDistance(
+          target.target,
+          target.valueKey,
+          target.autoKey,
+          distanceForScale(target, lowScale),
+          { rounding: "floor" }
+        ) || changed;
     });
 
     return changed;
@@ -2310,6 +2363,9 @@
       if (!limit.overLimit) return;
 
       const limitDetails = [
+        limit.controllerOverLimit
+          ? `${limit.controllerCount} controllers assigned; each 96 W power interface can feed up to ${MAX_CONTROLLERS_PER_POWER_SUPPLY} controllers.`
+          : "",
         limit.tapeOverLimit ? `${ft(limit.totalTapeLength)} total tape; ${limit.tape.label} allows ${ft(limit.limitFt)} per 96 W power interface.` : "",
         limit.powerOverLimit ? `${watts(limit.powerW)} load; each power interface must stay under ${watts(POWER_LIMIT_W)}.` : ""
       ]
@@ -2394,6 +2450,14 @@
         const nearWireSize = run.wireSizeToTapeStart;
         const dualEndRecommendedOverFt = controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT;
         const maxContinuousRunFt = controller.tape.maxContinuousRunFt || DUAL_END_MAX_FT;
+        const seriesLayout = isSeriesWiring(controller);
+        const branchRunsForSpec = seriesLayout ? orderedSeriesBranch(controller, run) : [run];
+        const specCheckLengthFt = seriesLayout ? seriesBranchTapeLength(controller, run) : run.tapeLength;
+        const specCheckName = seriesLayout ? "series branch" : "tape run";
+        const specHasDualFeed = seriesLayout ? seriesBranchHasDualFeed(controller, run) : run.feedBothEnds;
+        const dualFeedSuggested = hasTape && specCheckLengthFt > dualEndRecommendedOverFt && !specHasDualFeed;
+        const reportSpecIssue = !seriesLayout || seriesRunIndex(controller, run) === 0;
+        const showDualFeedCallout = dualFeedSuggested && (!seriesLayout || seriesRunIndex(controller, run) === branchRunsForSpec.length - 1);
         let specStatus = hasTape ? { label: "In range", level: "ok" } : { label: "No tape", level: "neutral" };
 
         let fadeAtTapeStartPct = 0;
@@ -2404,10 +2468,11 @@
         if (hasTape && run.feedBothEnds) {
           const halfLength = run.tapeLength / 2;
           const halfCurrent = currentForTapeLength(halfLength, controller.tape);
+          const nearSegmentCurrent = controlSegmentCurrent(controller, run);
           const farDistance = Math.max(0, number(run.farEndDistance || nearDistance));
           const farWireSize = run.farEndWireSize || nearWireSize;
           const nearFeedPct =
-            (baseDropV + ohmsForWire(nearWireSize) * nearDistance * halfCurrent) * controller.tape.droopPerVolt * 100;
+            (baseDropV + ohmsForWire(nearWireSize) * nearDistance * nearSegmentCurrent) * controller.tape.droopPerVolt * 100;
           const farFeedPct =
             (baseDropV + ohmsForWire(farWireSize) * farDistance * halfCurrent) * controller.tape.droopPerVolt * 100;
           const nearInternalPct = internalFadeForSegment(halfLength, halfCurrent, controller.tape);
@@ -2416,11 +2481,11 @@
           visibleRunFadePct = Math.max(nearInternalPct, farInternalPct, Math.abs(nearFeedPct - farFeedPct));
           fadeAtTapeEndPct = fadeAtTapeStartPct + visibleRunFadePct;
           leadDropV = Math.max(
-            baseDropV + ohmsForWire(nearWireSize) * nearDistance * halfCurrent,
+            baseDropV + ohmsForWire(nearWireSize) * nearDistance * nearSegmentCurrent,
             baseDropV + ohmsForWire(farWireSize) * farDistance * halfCurrent
           );
         } else if (hasTape) {
-          leadDropV = baseDropV + ohmsForWire(nearWireSize) * nearDistance * run.tapeCurrent;
+          leadDropV = baseDropV + ohmsForWire(nearWireSize) * nearDistance * controlSegmentCurrent(controller, run);
           fadeAtTapeStartPct = leadDropV * controller.tape.droopPerVolt * 100;
           visibleRunFadePct = internalFadeForSegment(run.tapeLength, run.tapeCurrent, controller.tape);
           fadeAtTapeEndPct = fadeAtTapeStartPct + visibleRunFadePct;
@@ -2429,41 +2494,49 @@
         const startStatus = startFadeBucket(fadeAtTapeStartPct, hasTape);
         const runStatus = fadeBucket(visibleRunFadePct);
 
-        if (run.tapeLength > maxContinuousRunFt) {
+        if (specCheckLengthFt > maxContinuousRunFt) {
           specStatus = { label: "Too long", level: "fail" };
           const detail =
             controller.tape.id === "rania-high"
-              ? `${ft(run.tapeLength)} entered. Rania High Output allows ${ft(
+              ? `${ft(specCheckLengthFt)} in this ${specCheckName}. Rania High Output allows ${ft(
                   maxContinuousRunFt
                 )} total per power interface; reduce the tape length or use another properly specified power interface.`
-              : `${ft(run.tapeLength)} entered. ${controller.tape.label} should be split into separate parallel runs when a single run is over ${ft(
-                  maxContinuousRunFt
-                )}.`;
-          issues.push(
-            issue(
-              "fail",
-              `${run.runName} is too long as one continuous tape`,
-              detail
-            )
-          );
-        } else if (run.tapeLength > dualEndRecommendedOverFt && !run.feedBothEnds) {
+              : seriesLayout
+                ? `${ft(specCheckLengthFt)} in this ${specCheckName}. This controller is set to Series, so these tape runs are being checked as one continuous path. If they are separate tape runs, change this controller to Parallel or Series-Parallel; any individual run over ${ft(
+                    dualEndRecommendedOverFt
+                  )} still needs dual-ended wiring.`
+                : `${ft(specCheckLengthFt)} in this ${specCheckName}. ${controller.tape.label} allows up to ${ft(
+                    maxContinuousRunFt
+                  )} on one dual-ended run. Split longer tape into separate parallel runs.`;
+          if (reportSpecIssue) {
+            issues.push(
+              issue(
+                "fail",
+                `${seriesLayout ? "Series branch" : run.runName} is too long`,
+                detail
+              )
+            );
+          }
+        } else if (dualFeedSuggested) {
           specStatus = { label: "Dual feed recommended", level: "warn" };
           const detail =
             controller.tape.id === "rania-high"
-              ? `${ft(run.tapeLength)} entered. Rania High Output should be fed from both ends when a run is over ${ft(
+              ? `${ft(specCheckLengthFt)} in this ${specCheckName}. Rania High Output should be fed from both ends when a run is over ${ft(
                   dualEndRecommendedOverFt
                 )}.`
-              : `${ft(run.tapeLength)} entered. Feed both ends or split this into parallel runs when a run is over ${ft(
+              : `${ft(specCheckLengthFt)} in this ${specCheckName}. Feed the far end or split this into parallel runs when a series path is over ${ft(
                   dualEndRecommendedOverFt
                 )}.`;
-          issues.push(
-            issue(
-              "warn",
-              `${run.runName} should be fed from both ends`,
-              detail
-            )
-          );
-        } else if (run.tapeLength > dualEndRecommendedOverFt && run.feedBothEnds) {
+          if (reportSpecIssue) {
+            issues.push(
+              issue(
+                "warn",
+                `${seriesLayout ? "Series branch" : run.runName} needs dual feed or split`,
+                detail
+              )
+            );
+          }
+        } else if (hasTape && specCheckLengthFt > dualEndRecommendedOverFt && specHasDualFeed) {
           specStatus = { label: "Dual feed ok", level: "ok" };
         }
 
@@ -2526,9 +2599,13 @@
           powerCableStatus: startStatus,
           runOverallStatus,
           distanceGuidance,
-          lengthLimit: run.feedBothEnds ? maxContinuousRunFt : dualEndRecommendedOverFt,
+          lengthLimit: specHasDualFeed ? maxContinuousRunFt : dualEndRecommendedOverFt,
           dualEndRecommendedOverFt,
-          maxContinuousRunFt
+          maxContinuousRunFt,
+          specCheckLengthFt,
+          specCheckName,
+          dualFeedSuggested,
+          showDualFeedCallout
         };
       });
 
@@ -2899,6 +2976,47 @@
     `;
   }
 
+  function systemMapLossGauge(x, y, width, lossPct) {
+    const loss = Math.max(0, number(lossPct));
+    const scaleMax = 50;
+    const markerX = x + width * (Math.min(scaleMax, loss) / scaleMax);
+    const greenWidth = width * 0.5;
+    const yellowWidth = width * 0.3;
+    const redWidth = width - greenWidth - yellowWidth;
+    const label = `${pct(loss)} loss`;
+
+    return `
+      <g class="system-map-loss-gauge">
+        <title>Estimated light loss at the beginning of the tape: ${escapeHtml(pct(loss))}</title>
+        <rect class="system-map-loss-track" x="${x}" y="${y}" width="${width}" height="7" rx="3.5"></rect>
+        <rect class="system-map-loss-zone ok" x="${x}" y="${y}" width="${greenWidth}" height="7" rx="3.5"></rect>
+        <rect class="system-map-loss-zone warn" x="${x + greenWidth}" y="${y}" width="${yellowWidth}" height="7"></rect>
+        <rect class="system-map-loss-zone fail" x="${x + greenWidth + yellowWidth}" y="${y}" width="${redWidth}" height="7" rx="3.5"></rect>
+        <line class="system-map-loss-marker" x1="${markerX}" y1="${y - 3}" x2="${markerX}" y2="${y + 10}"></line>
+        <circle class="system-map-loss-marker-dot" cx="${markerX}" cy="${y + 3.5}" r="3.5"></circle>
+        <text class="system-map-loss-label" x="${x + width / 2}" y="${y + 18}" text-anchor="middle">${escapeHtml(label)}</text>
+      </g>
+    `;
+  }
+
+  function systemMapRunNode(x, centerY, width, run, level, jump) {
+    const nodeHeight = 76;
+    return `
+      ${systemMapNode(
+        x,
+        centerY - nodeHeight / 2,
+        width,
+        nodeHeight,
+        shortMapLabel(run.runName),
+        `${ft(run.tapeLength)} tape`,
+        level,
+        jump,
+        "run"
+      )}
+      ${systemMapLossGauge(x + 14, centerY + 18, width - 28, run.fadeAtTapeStartPct)}
+    `;
+  }
+
   function systemMapWire(x1, y1, x2, y2, label, level, jump) {
     const sameRow = Math.abs(y2 - y1) < 1;
     const sameColumn = Math.abs(x2 - x1) < 1;
@@ -2949,31 +3067,12 @@
     ]);
   }
 
-  function systemMapTape(x, y, run, level, jump) {
-    const tapeWidth = 104;
-    const bothEnds = run.feedBothEnds
-      ? `
-        <circle class="system-map-tape-end ${level}" cx="${x}" cy="${y}" r="5"></circle>
-        <circle class="system-map-tape-end ${level}" cx="${x + tapeWidth}" cy="${y}" r="5"></circle>
-        <text class="system-map-note" x="${x + tapeWidth / 2}" y="${y - 13}" text-anchor="middle">fed both ends</text>
-      `
-      : "";
-
-    return `
-      <g class="system-map-tape-link ${level}" data-jump="${escapeHtml(jump)}" role="button" tabindex="0">
-        <line class="system-map-tape-hit" x1="${x}" y1="${y}" x2="${x + tapeWidth}" y2="${y}"></line>
-        <line class="system-map-tape ${level}" x1="${x}" y1="${y}" x2="${x + tapeWidth}" y2="${y}"></line>
-        ${bothEnds}
-      </g>
-    `;
-  }
-
   function powerWireTag(distance, wireSize) {
     return `${ft(distance)} / ${normalizePowerWireSize(wireSize)} AWG power`;
   }
 
   function controlWireTag(distance, tape, wireSize = DEFAULT_CONTROL_WIRE_SIZE) {
-    return `${ft(distance)} / ${controlCableShortLabel(tape, wireSize)}`;
+    return ft(distance);
   }
 
   function controlWireTypeField(tape, wireSize = DEFAULT_CONTROL_WIRE_SIZE, path = "") {
@@ -3072,11 +3171,10 @@
     const controllerX = usesPowerSplit ? 430 : 340;
     const tapeSplitX = usesPowerSplit ? 650 : 560;
     const runX = usesPowerSplit ? 830 : 740;
-    const tapeX = usesPowerSplit ? 992 : 902;
     const chainStep = 238;
     const laneGap = 156;
-    const runGap = 78;
-    const seriesRowGap = 92;
+    const runGap = 96;
+    const seriesRowGap = 108;
     const seriesGroupGap = 18;
     const maxSeriesColumns = Math.max(
       1,
@@ -3093,9 +3191,9 @@
     const controllerMapHeight = (controller) => {
       const actualController = result.controllers[controller.globalIndex];
       if (actualController && isSeriesWiring(actualController)) {
-        return Math.max(84, seriesHeightForGroups(orderedSeriesGroups(actualController)));
+        return Math.max(100, seriesHeightForGroups(orderedSeriesGroups(actualController)));
       }
-      return Math.max(84, Math.max(1, controller.runs.length) * runGap);
+      return Math.max(100, Math.max(1, controller.runs.length) * runGap);
     };
     const pieces = [];
     const interfaceLimitBySupply = new Map((result.interfaceTapeLimits || []).map((limit) => [limit.interfaceIndex, limit]));
@@ -3258,21 +3356,8 @@
               } else {
                 pieces.push(systemMapWire(previousEndX, previousEndY, nodeX, runY, label, runLevel, runTarget));
               }
-              pieces.push(
-                systemMapNode(
-                  nodeX,
-                  runY - 30,
-                  118,
-                  60,
-                  shortMapLabel(actualRun.runName),
-                  `${ft(actualRun.tapeLength)} tape`,
-                  runLevel,
-                  runTarget,
-                  "run"
-                )
-              );
-              pieces.push(systemMapTape(tapeStartX, runY, actualRun, runLevel, runTarget));
-              previousEndX = tapeStartX + 104;
+              pieces.push(systemMapRunNode(nodeX, runY, 118, actualRun, runLevel, runTarget));
+              previousEndX = tapeStartX;
               previousEndY = runY;
             });
 
@@ -3300,20 +3385,7 @@
                 runTarget
               )
             );
-            pieces.push(
-              systemMapNode(
-                runX,
-                runY - 30,
-                118,
-                60,
-                shortMapLabel(actualRun.runName),
-                `${ft(actualRun.tapeLength)} tape`,
-                runLevel,
-                runTarget,
-                "run"
-              )
-            );
-            pieces.push(systemMapTape(tapeX, runY, actualRun, runLevel, runTarget));
+            pieces.push(systemMapRunNode(runX, runY, 118, actualRun, runLevel, runTarget));
           });
         }
 
@@ -3333,6 +3405,7 @@
         </svg>
       </div>
     `;
+    applySystemMapZoom();
     queueMapPanUpdate();
   }
 
@@ -3456,7 +3529,6 @@
     const controllerX = complexMap ? 570 : 410;
     const tapeSplitX = complexMap ? 850 : 610;
     const runX = complexMap ? 1120 : 690;
-    const runWidth = 112;
     const pieces = [
       systemMapNode(powerX, powerY, 118, 64, "Power Box", "LU-PH3", result.level === "fail" ? "fail" : "neutral", "#powerFeedCard")
     ];
@@ -3538,7 +3610,6 @@
           )
         );
         pieces.push(systemMapNode(runX, runY - 30, 112, 60, shortMapLabel(run.runName), runSub, runLevel, jump, "run"));
-        pieces.push(systemMapTape(runX + runWidth, runY, run, runLevel, jump));
       });
     });
 
@@ -3636,6 +3707,7 @@
       ${renderSystemMapSvg(result, activeControllers)}
       ${renderSystemMapStack(result, activeControllers)}
     `;
+    applySystemMapZoom();
     queueMapPanUpdate();
   }
 
@@ -3850,6 +3922,8 @@
   function renderRun(controller, run, runIndex, result) {
     const controllerIndex = controller.controllerIndex;
     const distanceConfig = runDistanceFieldConfig(controller, run);
+    const specCheckLengthFt = Math.max(0, number(result?.specCheckLengthFt ?? run.specCheckLengthFt ?? run.tapeLength));
+    const specCheckName = result?.specCheckName || run.specCheckName || (isSeriesWiring(controller) ? "series branch" : "tape run");
     const farEndFields = run.feedBothEnds
       ? `
         <div class="far-end-fields">
@@ -3870,7 +3944,7 @@
       : "";
     const modeText = run.feedBothEnds
       ? `Modeled as two ${ft(run.tapeLength / 2)} feeds from opposite ends.`
-      : `Feed both ends when this tape run is over ${ft(controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT)}.`;
+      : `Feed both ends when this ${specCheckName} is over ${ft(controller.tape.dualEndRecommendedOverFt || FULL_REEL_FT)}. Current ${specCheckName}: ${ft(specCheckLengthFt)}.`;
 
     return `
       <section id="controller-${controllerIndex + 1}-run-${run.runLetter}" class="run-card">
@@ -3960,6 +4034,10 @@
       specStatus: sourceRun.specStatus || { label: "No tape", level: "neutral" },
       controlCableStatus: sourceRun.controlCableStatus || { label: "Control", level: "neutral" },
       runOverallStatus: sourceRun.runOverallStatus || { label: "Ready", level: "neutral" },
+      specCheckLengthFt: Math.max(0, number(sourceRun.specCheckLengthFt ?? sourceRun.tapeLength)),
+      specCheckName: sourceRun.specCheckName || "tape run",
+      dualFeedSuggested: Boolean(sourceRun.dualFeedSuggested),
+      showDualFeedCallout: Boolean(sourceRun.showDualFeedCallout),
       distanceGuidance: sourceRun.distanceGuidance || {
         goodTotalPathFt: 0,
         maxTotalPathFt: 0,
@@ -3977,8 +4055,8 @@
     const distanceConfig = runDistanceFieldConfig(controller, run);
     const distanceGuidance = run.distanceGuidance;
     const dualSuggestion =
-      run.tapeLength > run.dualEndRecommendedOverFt && !run.feedBothEnds
-        ? `<span class="field-callout warn">Suggested by spec for this length</span>`
+      run.showDualFeedCallout
+        ? `<span class="field-callout warn">Suggested by spec for this ${escapeHtml(run.specCheckName)} (${ft(run.specCheckLengthFt)})</span>`
         : "";
     const farEndFields = run.feedBothEnds
       ? `
@@ -4035,7 +4113,6 @@
 
           <div class="distance-guide">
             ${resultChip("Power table reference", `${ft(distanceGuidance.powerSpecLimitFt)} using ${distanceGuidance.powerWireSize} AWG`)}
-            ${resultChip("Control path reference", `${ft(distanceGuidance.controlSpecLimitFt)} using ${controlCableShortLabel(controller.tape, distanceGuidance.controlWireSize)}`)}
             ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
           </div>
 
@@ -4116,8 +4193,8 @@
         const stepId = `tape-run-${run.globalRunIndex}`;
         const distanceConfig = runDistanceFieldConfig(controller, run);
         const dualSuggestion =
-          run.tapeLength > run.dualEndRecommendedOverFt && !run.feedBothEnds
-            ? `<span class="field-callout warn">Suggested by spec for this length</span>`
+          run.showDualFeedCallout
+            ? `<span class="field-callout warn">Suggested by spec for this ${escapeHtml(run.specCheckName)} (${ft(run.specCheckLengthFt)})</span>`
             : "";
         const farEndFields = run.feedBothEnds
           ? `
@@ -4176,7 +4253,6 @@
             </div>
             <div class="distance-guide">
               ${resultChip("Power table reference", `${ft(run.distanceGuidance.powerSpecLimitFt)} using ${run.distanceGuidance.powerWireSize} AWG`)}
-              ${resultChip("Control path reference", `${ft(run.distanceGuidance.controlSpecLimitFt)} using ${controlCableShortLabel(controller.tape, run.distanceGuidance.controlWireSize)}`)}
               ${resultChip("Calculated path check", `${pct(run.fadeAtTapeStartPct)} light loss at tape start`, run.startStatus)}
             </div>
             ${guideStepNavMarkup(stepId)}
@@ -4350,7 +4426,7 @@
             controller.powerSupplyIndex,
             recommendation.powerSupplyCount
           )}</select>
-          <small class="field-help">Choose which 96 W power supply feeds this controller.</small>
+          <small class="field-help">Choose which 96 W power supply feeds this controller. Max ${MAX_CONTROLLERS_PER_POWER_SUPPLY} controllers per power supply.</small>
         </label>
       `
       : "";
@@ -4362,7 +4438,7 @@
         <summary class="controller-top controller-summary">
           <div class="controller-title">
             <strong>Controller ${index + 1}</strong>
-            <span>${assignedText} - ${amps(controller.totalTapeCurrent)} tape, ${amps(controller.inputCurrent)} total</span>
+            <span>${assignedText}</span>
           </div>
           <div class="controller-actions">
             <div class="controller-status">${pill(controller.tapeStatus)} <span class="muted">${statusText}</span></div>
@@ -4482,7 +4558,7 @@
           </label>
           <div class="controller-title">
             <strong>${controller.tape.label}</strong>
-            <span>${controller.tape.detail} - ${amps(controller.totalTapeCurrent)} tape, ${amps(controller.inputCurrent)} total</span>
+            <span>${controller.tape.detail}</span>
           </div>
           <div class="controller-actions">
             <div class="controller-status">${pill(controller.tapeStatus)} <span class="muted">${statusText}</span></div>
@@ -4610,6 +4686,86 @@
     };
   }
 
+  function issueReportUrl(liveResult, recommendation, result) {
+    const activeIssues = liveResult.issues.filter((item) => item.level === "warn" || item.level === "fail");
+    const runLines = result.tapeRunResults
+      .filter((run) => run.tapeLength > 0)
+      .map(
+        (run) =>
+          `- ${run.defaultRunName}: ${run.runName}; ${ft(run.tapeLength)}; Controller ${run.controllerIndex + 1}; ${run.feedBothEnds ? "dual-ended" : "single-ended"}; ${pct(run.fadeAtTapeStartPct)} start loss; ${run.runOverallStatus?.label || "No status"}`
+      );
+    const controllerLines = result.controllers
+      .filter((controller) => controller.enabled)
+      .map(
+        (controller) =>
+          `- Controller ${controller.controllerIndex + 1}: Power Supply ${Math.round(number(controller.powerSupplyIndex || 0)) + 1}; ${controllerWiringStyle(controller)}; ${ft(controller.totalTapeLength)} tape; ${watts(controller.tapePowerW)}; ${ft(controller.powerCableDistanceFt)} power wire`
+      );
+    const supplyLines = result.interfaceTapeLimits.map(
+      (supply) =>
+        `- Power Supply ${supply.interfaceIndex + 1}: Controllers ${supply.controllerNumbers.join(", ") || "none"}; ${ft(supply.totalTapeLength)} tape; ${watts(supply.powerW)}`
+    );
+    const issueLines = activeIssues.map((item) => `- [${item.level.toUpperCase()}] ${item.title}: ${item.detail}`);
+
+    let body = [
+      "## What happened?",
+      "Please describe the issue here.",
+      "",
+      "## Expected result",
+      "Please describe what you expected the tool to show.",
+      "",
+      "## Tool snapshot",
+      `- App version: ${APP_VERSION}`,
+      `- Project name: ${state.projectName || "(blank)"}`,
+      `- Product: ${recommendation.tape.label}`,
+      `- Overall result: ${liveResult.overall}`,
+      `- Total tape: ${ft(liveResult.totalTapeLength)}`,
+      `- Estimated load: ${watts(liveResult.powerW)}`,
+      `- Power feed mode: ${state.powerMode}`,
+      `- Suggested power supplies: ${recommendation.powerSupplyCount}`,
+      `- Suggested controllers: ${recommendation.controllerCount}`,
+      "",
+      "## Current warnings / fixes",
+      issueLines.length ? issueLines.join("\n") : "- None",
+      "",
+      "## Tape runs",
+      runLines.length ? runLines.join("\n") : "- No tape runs entered",
+      "",
+      "## Controllers",
+      controllerLines.length ? controllerLines.join("\n") : "- No controllers in use",
+      "",
+      "## Power supplies",
+      supplyLines.length ? supplyLines.join("\n") : "- No power supplies in use",
+      "",
+      "## Browser",
+      `- URL: ${window.location.href}`,
+      `- Viewport: ${window.innerWidth || 0} x ${window.innerHeight || 0}`,
+      `- User agent: ${window.navigator.userAgent || "unknown"}`,
+      "",
+      "Optional: attach a saved project JSON file if the issue is hard to reproduce."
+    ].join("\n");
+
+    if (body.length > 6000) {
+      body = `${body.slice(0, 5900)}\n\n[Report truncated by the tool. Please attach a saved project JSON file if needed.]`;
+    }
+
+    const titleContext = recommendation.activeRunCount
+      ? `${recommendation.tape.label}, ${ft(liveResult.totalTapeLength)}`
+      : "new issue";
+    const params = new URLSearchParams({
+      title: `TRACE Tool bug: ${titleContext}`,
+      body
+    });
+    return `${GITHUB_ISSUE_URL}?${params.toString()}`;
+  }
+
+  function updateIssueReportLinks(liveResult, recommendation, result) {
+    const href = issueReportUrl(liveResult, recommendation, result);
+    els.issueReportLinks.forEach((link) => {
+      link.href = href;
+      link.setAttribute("aria-label", `Report an issue on GitHub for ${liveResult.overall}`);
+    });
+  }
+
   function renderLiveResults(result, recommendation = buildRecommendation(state)) {
     const liveResult = buildLivePlan(result, recommendation);
     currentLiveLevel = liveResult.level;
@@ -4618,6 +4774,7 @@
     renderStatusStrip(liveResult);
     renderRecommendedSystemMap(recommendation, result);
     renderSuggestedSystem(recommendation, result);
+    updateIssueReportLinks(liveResult, recommendation, result);
 
     els.overallStatus.textContent = liveResult.overall;
     els.overallPill.textContent = liveResult.overall;
@@ -4800,6 +4957,35 @@
       target = target[key];
     }
     target[parts[parts.length - 1]] = value;
+  }
+
+  function isDistancePath(path) {
+    return (
+      path === "sharedPower.distance" ||
+      /^controllers\.\d+\.(distancePowerToController|distanceSplitToController|distanceControllerToTapeSplit)$/.test(path) ||
+      /^tapeRuns\.\d+\.(distanceControllerToTapeStart|distanceSplitToTapeStart|distancePreviousToTapeStart|farEndDistance)$/.test(path)
+    );
+  }
+
+  function freezeRecommendedDistances(inputState = state) {
+    const freezeIfSuggested = (target, valueKey, autoKey) => {
+      if (target?.[autoKey] !== false && number(target?.[valueKey]) > 0) {
+        target[autoKey] = false;
+      }
+    };
+
+    freezeIfSuggested(inputState.sharedPower, "distance", "distanceAuto");
+    inputState.controllers.forEach((controller) => {
+      freezeIfSuggested(controller, "distancePowerToController", "distancePowerToControllerAuto");
+      freezeIfSuggested(controller, "distanceSplitToController", "distanceSplitToControllerAuto");
+      freezeIfSuggested(controller, "distanceControllerToTapeSplit", "distanceControllerToTapeSplitAuto");
+    });
+    inputState.tapeRuns.forEach((run) => {
+      freezeIfSuggested(run, "distanceControllerToTapeStart", "distanceControllerToTapeStartAuto");
+      freezeIfSuggested(run, "distanceSplitToTapeStart", "distanceSplitToTapeStartAuto");
+      freezeIfSuggested(run, "distancePreviousToTapeStart", "distancePreviousToTapeStartAuto");
+      freezeIfSuggested(run, "farEndDistance", "farEndDistanceAuto");
+    });
   }
 
   function markManualOverride(path) {
@@ -4990,6 +5176,9 @@
       value = number(target.value);
     }
 
+    if (isDistancePath(path)) {
+      freezeRecommendedDistances();
+    }
     setPath(path, value);
     markManualOverride(path);
     activePreset = "custom";
@@ -5107,11 +5296,72 @@
     });
   }
 
+  function clampSystemMapZoom(value) {
+    return Math.min(SYSTEM_MAP_MAX_ZOOM, Math.max(SYSTEM_MAP_MIN_ZOOM, value));
+  }
+
+  function mapRenderedWidth() {
+    const track = els.systemMap.querySelector(".system-map-track");
+    return track?.getBoundingClientRect().width || els.systemMap.scrollWidth || 0;
+  }
+
+  function applySystemMapZoom() {
+    els.systemMap.style.setProperty("--map-zoom", systemMapZoom.toFixed(2));
+    const track = els.systemMap.querySelector(".system-map-track");
+    if (track) {
+      const mapWidth = Number.parseFloat(track.style.getPropertyValue("--map-width")) || 980;
+      track.style.setProperty("--map-rendered-width", `${Math.round(mapWidth * systemMapZoom)}px`);
+    }
+    if (els.mapZoomLabel) {
+      els.mapZoomLabel.textContent = `${Math.round(systemMapZoom * 100)}%`;
+    }
+  }
+
+  function setSystemMapZoom(nextZoom, anchorClientX = null) {
+    const track = els.systemMap.querySelector(".system-map-track");
+    if (!track) return;
+
+    const next = Math.round(clampSystemMapZoom(nextZoom) * 100) / 100;
+    if (Math.abs(next - systemMapZoom) < 0.001) {
+      updateMapPanControls();
+      return;
+    }
+
+    const mapRect = els.systemMap.getBoundingClientRect();
+    const anchorOffset =
+      typeof anchorClientX === "number" ? anchorClientX - mapRect.left : els.systemMap.clientWidth / 2;
+    const safeAnchorOffset = Math.max(0, Math.min(els.systemMap.clientWidth, anchorOffset));
+    const previousWidth = mapRenderedWidth();
+    const anchorRatio = previousWidth
+      ? (els.systemMap.scrollLeft + safeAnchorOffset) / previousWidth
+      : 0.5;
+
+    systemMapZoom = next;
+    applySystemMapZoom();
+
+    window.requestAnimationFrame(() => {
+      const nextWidth = mapRenderedWidth();
+      const maxScroll = Math.max(0, els.systemMap.scrollWidth - els.systemMap.clientWidth);
+      els.systemMap.scrollLeft = Math.max(0, Math.min(maxScroll, anchorRatio * nextWidth - safeAnchorOffset));
+      updateMapPanControls();
+    });
+  }
+
+  function handleSystemMapWheel(event) {
+    if (!els.systemMap.querySelector(".system-map-track")) return;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+    event.preventDefault();
+    setSystemMapZoom(
+      systemMapZoom + (event.deltaY < 0 ? SYSTEM_MAP_ZOOM_STEP : -SYSTEM_MAP_ZOOM_STEP),
+      event.clientX
+    );
+  }
+
   function updateMapPanControls() {
     const hasMap = Boolean(els.systemMap.querySelector(".system-map-track"));
-    const isSmallScreen = window.matchMedia("(max-width: 720px)").matches;
     const canScroll = els.systemMap.scrollWidth - els.systemMap.clientWidth > 48;
-    const canPan = hasMap && isSmallScreen;
+    const canPan = hasMap && canScroll;
     const atStart = els.systemMap.scrollLeft <= 1;
     const atEnd = canScroll && els.systemMap.scrollLeft + els.systemMap.clientWidth >= els.systemMap.scrollWidth - 1;
 
@@ -5121,6 +5371,15 @@
 
     els.panMapLeft.disabled = !canPan || atStart;
     els.panMapRight.disabled = !canPan || atEnd;
+
+    [els.zoomMapOut, els.resetMapZoom, els.zoomMapIn].forEach((button) => {
+      if (!button) return;
+      button.hidden = !hasMap;
+    });
+    if (els.zoomMapOut) els.zoomMapOut.disabled = !hasMap || systemMapZoom <= SYSTEM_MAP_MIN_ZOOM + 0.001;
+    if (els.zoomMapIn) els.zoomMapIn.disabled = !hasMap || systemMapZoom >= SYSTEM_MAP_MAX_ZOOM - 0.001;
+    if (els.resetMapZoom) els.resetMapZoom.disabled = !hasMap || Math.abs(systemMapZoom - SYSTEM_MAP_DEFAULT_ZOOM) < 0.001;
+    applySystemMapZoom();
   }
 
   function panSystemMap(direction) {
@@ -5144,10 +5403,6 @@
     if (event.pointerType === "touch") return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     beginSystemMapPan(event.pointerId, event.clientX, event.clientY);
-
-    if (mapPan) {
-      els.systemMap.setPointerCapture?.(event.pointerId);
-    }
   }
 
   function beginSystemMapPan(id, clientX, clientY) {
@@ -5158,7 +5413,8 @@
       startX: clientX,
       startY: clientY,
       scrollLeft: els.systemMap.scrollLeft,
-      moved: false
+      moved: false,
+      captured: false
     };
   }
 
@@ -5170,6 +5426,10 @@
     if (Math.abs(deltaX) <= 4 || Math.abs(deltaX) < Math.abs(deltaY)) return;
 
     mapPan.moved = true;
+    if (!mapPan.captured) {
+      els.systemMap.setPointerCapture?.(id);
+      mapPan.captured = true;
+    }
     els.systemMap.classList.add("is-dragging");
     els.systemMap.scrollLeft = mapPan.scrollLeft - deltaX;
     event.preventDefault();
@@ -5195,8 +5455,9 @@
   }
 
   function handleSystemMapPointerEnd(event) {
+    const wasCaptured = mapPan?.captured;
     const ended = endSystemMapPan(event.pointerId);
-    if (ended) {
+    if (ended && wasCaptured) {
       els.systemMap.releasePointerCapture?.(event.pointerId);
     }
   }
@@ -5394,8 +5655,12 @@
   els.systemMap.addEventListener("pointercancel", handleSystemMapPointerEnd);
   els.systemMap.addEventListener("click", handleSystemMapJump);
   els.systemMap.addEventListener("keydown", handleSystemMapJump);
+  els.systemMap.addEventListener("wheel", handleSystemMapWheel, { passive: false });
   els.panMapLeft.addEventListener("click", () => panSystemMap(-1));
   els.panMapRight.addEventListener("click", () => panSystemMap(1));
+  els.zoomMapOut?.addEventListener("click", () => setSystemMapZoom(systemMapZoom - SYSTEM_MAP_ZOOM_STEP));
+  els.resetMapZoom?.addEventListener("click", () => setSystemMapZoom(SYSTEM_MAP_DEFAULT_ZOOM));
+  els.zoomMapIn?.addEventListener("click", () => setSystemMapZoom(systemMapZoom + SYSTEM_MAP_ZOOM_STEP));
   els.darkModeToggle.addEventListener("change", handleThemeToggle);
   els.addTapeRun?.addEventListener("click", addTapeRun);
   els.tapeRuns.addEventListener("click", handleTapeRunActions);
@@ -5455,6 +5720,7 @@
   window.LutronInstallerTapeCheckV4 = publicApi;
 
   applyTheme(preferredTheme());
+  setReviewTab("diagram");
   render();
   showDisclaimer();
 })();

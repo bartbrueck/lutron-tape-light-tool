@@ -14,7 +14,7 @@
       } catch (error) {}
     </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightstrip&display=swap">
-    <link rel="stylesheet" href="styles.css?v=wizard-steps-40">
+    <link rel="stylesheet" href="styles.css?v=wizard-steps-54">
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true" focusable="false">
@@ -84,6 +84,16 @@
       <symbol id="icon-close" viewBox="0 0 24 24">
         <path d="M6 6l12 12"></path>
         <path d="M18 6L6 18"></path>
+      </symbol>
+      <symbol id="icon-bug" viewBox="0 0 24 24">
+        <path d="M8 7V5a4 4 0 0 1 8 0v2"></path>
+        <path d="M7 9h10v7a5 5 0 0 1-10 0z"></path>
+        <path d="M4 13h3"></path>
+        <path d="M17 13h3"></path>
+        <path d="M5 19l2-2"></path>
+        <path d="M19 19l-2-2"></path>
+        <path d="M9 12h.01"></path>
+        <path d="M15 12h.01"></path>
       </symbol>
     </svg>
     <header class="topbar">
@@ -185,6 +195,10 @@
             <h3 id="mobileIssueTitle">What to fix</h3>
             <div id="mobileIssueList"></div>
           </section>
+          <a class="issue-report-button" data-report-issue href="https://github.com/bartbrueck/lutron-tape-light-tool/issues/new" target="_blank" rel="noopener">
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-bug"></use></svg>
+            <span>Report an issue</span>
+          </a>
         </details>
 
         <section id="tapeProductCard" class="setup-card wizard-step" data-step="1" aria-labelledby="tapeProductTitle">
@@ -299,7 +313,7 @@
                   <svg class="button-icon" aria-hidden="true"><use href="#icon-map"></use></svg>
                   <span>Diagram</span>
                 </button>
-                <button id="reviewSummaryTab" type="button" class="review-tab-button" role="tab" aria-selected="false" aria-controls="reviewSummaryPanel" data-review-tab="summary">
+                <button id="reviewSummaryTab" type="button" class="review-tab-button" role="tab" aria-selected="false" aria-controls="reviewSummaryPanel" data-review-tab="summary" hidden>
                   <svg class="button-icon" aria-hidden="true"><use href="#icon-insights"></use></svg>
                   <span>Summary</span>
                 </button>
@@ -308,14 +322,19 @@
               <section id="reviewDiagramPanel" class="review-tab-panel is-active" role="tabpanel" aria-labelledby="reviewDiagramTab" data-review-panel="diagram">
                 <div class="review-panel-heading">
                   <strong>Live wiring diagram</strong>
-                  <span class="max-distance-note">Wire lengths shown are suggested starting values. Final status is calculated from voltage drop along the actual power and control wire path.</span>
+                  <span class="max-distance-note">Automatic wire lengths shown are estimated maximum distances calculated to keep light loss at the beginning of the tape under 25%. Enter the actual field distances in Fine-Tune to confirm the design.</span>
                 </div>
                 <div class="system-map-shell">
                   <div id="systemMap" class="system-map" aria-live="polite"></div>
-                  <div class="system-map-controls" aria-label="Move wiring diagram">
+                  <div class="system-map-controls" aria-label="Move and zoom wiring diagram">
                     <button id="panMapLeft" type="button" class="map-pan-button" aria-label="Move diagram left">
                       <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
                     </button>
+                    <button id="zoomMapOut" type="button" class="map-zoom-button" aria-label="Zoom diagram out">-</button>
+                    <button id="resetMapZoom" type="button" class="map-zoom-reset" aria-label="Reset diagram zoom">
+                      <span id="mapZoomLabel">85%</span>
+                    </button>
+                    <button id="zoomMapIn" type="button" class="map-zoom-button" aria-label="Zoom diagram in">+</button>
                     <button id="panMapRight" type="button" class="map-pan-button" aria-label="Move diagram right">
                       <svg class="button-icon" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
                     </button>
@@ -429,6 +448,10 @@
           <h3 id="issueTitle">What to fix</h3>
           <div id="issueList"></div>
         </section>
+        <a class="issue-report-button" data-report-issue href="https://github.com/bartbrueck/lutron-tape-light-tool/issues/new" target="_blank" rel="noopener">
+          <svg class="button-icon" aria-hidden="true"><use href="#icon-bug"></use></svg>
+          <span>Report an issue</span>
+        </a>
 
         <section class="reference-section" aria-label="Acceptance criteria">
           <h3>Acceptance Criteria</h3>
@@ -514,6 +537,6 @@
       </section>
     </div>
 
-    <script src="app.js?v=wizard-steps-40"></script>
+    <script src="app.js?v=wizard-steps-54"></script>
   </body>
 </html>
