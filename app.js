@@ -24,7 +24,7 @@
   const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
-  const APP_VERSION = "2.1";
+  const APP_VERSION = "2.2";
   const GITHUB_ISSUE_URL = "https://github.com/bartbrueck/lutron-tape-light-tool/issues/new";
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
@@ -1860,7 +1860,20 @@
     return sharedDistance + branchDistance;
   }
 
-  function controllerControlWireSize(inputState) {
+  // Gauge used for the control-cable spec-table lookup. Each wire has its own
+  // gauge, so use the thinnest one on this controller (highest AWG number).
+  // That is the conservative row of the table.
+  function controllerControlWireSize(inputState, controller) {
+    const sizes = [];
+    (controller?.runs || []).forEach((run) => {
+      if (number(run.tapeLength) <= 0) return;
+      sizes.push(normalizeControlWireSize(run.wireSizeToTapeStart));
+      if (run.feedBothEnds) sizes.push(normalizeControlWireSize(run.farEndWireSize || run.wireSizeToTapeStart));
+    });
+    if (controller && controllerUsesTapeSplit(controller)) {
+      sizes.push(normalizeControlWireSize(controller.wireSizeControllerToTapeSplit));
+    }
+    if (sizes.length) return Math.max(...sizes);
     return normalizeControlWireSize(inputState.controlWireSize ?? DEFAULT_CONTROL_WIRE_SIZE);
   }
 
@@ -2058,7 +2071,7 @@
       ? Math.max(runTapeDistance(controller, run), farEndControlDistance(controller, run))
       : runTapeDistance(controller, run);
     const powerWireSize = controllerPowerWireSize(inputState, controller);
-    const controlWireSize = controllerControlWireSize(inputState);
+    const controlWireSize = controllerControlWireSize(inputState, controller);
     const powerSpecLimitFt = powerCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, powerWireSize);
     const controlSpecLimitFt = controlCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, controlWireSize);
     const goodTotalPathFt = fadePctPerFt > 0 ? GOOD_LIGHT_LOSS_PCT / fadePctPerFt : 0;
@@ -2543,7 +2556,7 @@
       const powerCableLimitValueFt = powerCableLimitFt(controller.tape, controller.totalTapeLength, powerCableWireSize);
       const powerCableTableStatus = cableDistanceStatus(powerCableDistanceFt, powerCableLimitValueFt, controller.totalTapeLength > 0);
       const controlCableDistanceFt = controllerControlCableDistance(controller);
-      const controlCableWireSize = controllerControlWireSize(inputState);
+      const controlCableWireSize = controllerControlWireSize(inputState, controller);
       const controlCableLimitValueFt = controlCableLimitFt(controller.tape, controller.totalTapeLength, controlCableWireSize);
       const controlCableTableStatus = cableDistanceStatus(controlCableDistanceFt, controlCableLimitValueFt, controller.totalTapeLength > 0);
 
@@ -3209,8 +3222,8 @@
     return `
       <label class="map-field">
         <span>Control wire gauge</span>
-        <select data-path="controlWireSize">
-          ${CONTROL_WIRE_SIZES.map(size => `<option value="${size}"${state.controlWireSize === size ? " selected" : ""}>${size} AWG</option>`).join("")}
+        <select data-path="${escapeHtml(path || "controlWireSize")}">
+          ${CONTROL_WIRE_SIZES.map(size => `<option value="${size}"${normalizeControlWireSize(wireSize) === size ? " selected" : ""}>${size} AWG</option>`).join("")}
         </select>
       </label>
     `;
@@ -3555,7 +3568,7 @@
         <p>
           Based on ${escapeHtml(recommendation.tape.label)} with ${recommendation.controllerCount || 0} ${
       recommendation.controllerCount === 1 ? "controller" : "controllers"
-    }. Power wire is the 2-conductor run from the power interface to the controller. Control wire runs from the controller to the tape; conductor count is based on the tape product and control wire gauge is set to ${state.controlWireSize} AWG. ${
+    }. Power wire is the 2-conductor run from the power interface to the controller. Control wire runs from the controller to the tape; conductor count is based on the tape product and control wire defaults to ${state.controlWireSize} AWG, set per wire. ${
       dualFeedRuns.length
         ? `Dual-feed runs: ${escapeHtml(dualFeedRuns.map((run) => run.runName).join(", "))}.`
         : "No dual-feed runs currently selected."
@@ -3942,10 +3955,10 @@
       style === "series-parallel"
         ? `Enter the shared control wire distance from the controller to the branch point. This uses ${controlCableConductorCount(
             controller.tape
-          )}-conductor ${state.controlWireSize} AWG control wire.`
+          )}-conductor ${normalizeControlWireSize(controller.wireSizeControllerToTapeSplit)} AWG control wire.`
         : `Enter the shared control wire distance before the tape runs split. This uses ${controlCableConductorCount(
             controller.tape
-          )}-conductor ${state.controlWireSize} AWG control wire.`;
+          )}-conductor ${normalizeControlWireSize(controller.wireSizeControllerToTapeSplit)} AWG control wire.`;
 
     return `
       <div id="controller-${index + 1}-tape-split" class="wire-map">
@@ -4102,7 +4115,7 @@
           ${fieldInstruction(
             `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
               controller.tape
-            )}-conductor ${state.controlWireSize} AWG control wire.`
+            )}-conductor ${normalizeControlWireSize(run.wireSizeToTapeStart)} AWG control wire.`
           )}
           <div class="map-node">
             <span>${distanceConfig.fromNode}</span>
@@ -4257,7 +4270,7 @@
             ${fieldInstruction(
               `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
                 controller.tape
-              )}-conductor ${state.controlWireSize} AWG control wire.`
+              )}-conductor ${normalizeControlWireSize(run.wireSizeToTapeStart)} AWG control wire.`
             )}
             <div class="map-node">
               <span>${distanceConfig.fromNode}</span>
@@ -4365,7 +4378,7 @@
               ${fieldInstruction(
                 `Enter the actual control wire distance to this tape run. This uses ${controlCableConductorCount(
                   controller.tape
-                )}-conductor ${state.controlWireSize} AWG control wire.`
+                )}-conductor ${normalizeControlWireSize(run.wireSizeToTapeStart)} AWG control wire.`
               )}
               <div class="map-node">
                 <span>${distanceConfig.fromNode}</span>
