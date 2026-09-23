@@ -1,5 +1,6 @@
 (() => {
   const FULL_REEL_FT = 16.4;
+  const SERIES_TAPE_SEGMENTS = 24;
   const DUAL_END_MAX_FT = FULL_REEL_FT * 2;
   const POWER_LIMIT_W = 96;
   const GOOD_LIGHT_LOSS_PCT = 25;
@@ -23,7 +24,7 @@
   const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
-  const APP_VERSION = "wizard-steps-57";
+  const APP_VERSION = "2.1";
   const GITHUB_ISSUE_URL = "https://github.com/bartbrueck/lutron-tape-light-tool/issues/new";
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
@@ -1903,6 +1904,104 @@
     return dropV;
   }
 
+  // Series branch network solver.
+  // Models a series chain as a resistor ladder fed from one source node:
+  // lead wire, each tape's copper rails (split into segments with the tape's
+  // current spread evenly along it), the jumpers between runs, and any
+  // back-feed wire from the source to the far end of a run marked "fed both
+  // ends". Current for later runs flows through earlier tapes' rails, and a
+  // back-feed turns the chain into a loop, so the split between the two
+  // paths comes out of the solve instead of an assumed 50/50.
+  //
+  // Rail resistance: the workbook's calculatedResistance is V_delta / I_max,
+  // measured end to end on a full reel with its own load spread along it.
+  // For an evenly spread load, V_delta = I * R_rail / 2, so the rail loop
+  // resistance is 2 x calculatedResistance per full reel. With that value a
+  // single run's start-to-end fade matches internalFadeForSegment() exactly.
+  function solveSeriesBranch(controller, branchRuns, sourceDropV) {
+    const tape = controller.tape;
+    const segments = SERIES_TAPE_SEGMENTS;
+    const nodesPerRun = segments + 1;
+    const nodeCount = branchRuns.length * nodesPerRun;
+    const results = new Map();
+    if (!nodeCount) return results;
+
+    const minOhms = 0.000001;
+    const railOhmsPerFt = (2 * tape.calculatedResistance) / FULL_REEL_FT;
+    const diag = new Array(nodeCount).fill(0);
+    const link = new Array(nodeCount).fill(0);
+    const load = new Array(nodeCount).fill(0);
+    const connect = (index, ohms) => {
+      const conductance = 1 / Math.max(minOhms, ohms);
+      diag[index] += conductance;
+      diag[index + 1] += conductance;
+      link[index] = conductance;
+    };
+    const connectToSource = (index, ohms) => {
+      diag[index] += 1 / Math.max(minOhms, ohms);
+    };
+
+    branchRuns.forEach((run, runIndex) => {
+      const first = runIndex * nodesPerRun;
+      const last = first + segments;
+      const leadOhms = ohmsForWire(run.wireSizeToTapeStart) * Math.max(0, number(runDistance(controller, run)));
+      if (runIndex === 0) {
+        connectToSource(first, leadOhms);
+      } else {
+        connect(first - 1, leadOhms);
+      }
+
+      const length = Math.max(0, number(run.tapeLength));
+      const current = currentForTapeLength(length, tape);
+      const segmentOhms = (railOhmsPerFt * length) / segments;
+      for (let segment = 0; segment < segments; segment += 1) {
+        connect(first + segment, segmentOhms);
+      }
+      for (let node = 0; node <= segments; node += 1) {
+        const share = node === 0 || node === segments ? 0.5 : 1;
+        load[first + node] += (share * current) / segments;
+      }
+
+      if (run.feedBothEnds) {
+        const farDistance = Math.max(0, number(run.farEndDistance || runDistance(controller, run)));
+        connectToSource(last, ohmsForWire(run.farEndWireSize || run.wireSizeToTapeStart) * farDistance);
+      }
+    });
+
+    // Tridiagonal solve (Thomas algorithm). Back-feeds only touch the source
+    // node, which is fixed, so the matrix stays a simple chain.
+    const upper = new Array(nodeCount).fill(0);
+    const rhs = new Array(nodeCount).fill(0);
+    upper[0] = -link[0] / diag[0];
+    rhs[0] = load[0] / diag[0];
+    for (let index = 1; index < nodeCount; index += 1) {
+      const pivot = diag[index] + link[index - 1] * upper[index - 1];
+      upper[index] = index < nodeCount - 1 ? -link[index] / pivot : 0;
+      rhs[index] = (load[index] + link[index - 1] * rhs[index - 1]) / pivot;
+    }
+    const dropV = new Array(nodeCount).fill(0);
+    dropV[nodeCount - 1] = rhs[nodeCount - 1];
+    for (let index = nodeCount - 2; index >= 0; index -= 1) {
+      dropV[index] = rhs[index] - upper[index] * dropV[index + 1];
+    }
+
+    branchRuns.forEach((run, runIndex) => {
+      const first = runIndex * nodesPerRun;
+      const last = first + segments;
+      const runDrops = dropV.slice(first, last + 1).map((value) => sourceDropV + value);
+      const startDropV = runDrops[0];
+      const farDropV = runDrops[segments];
+      results.set(run.globalRunIndex, {
+        startDropV,
+        farDropV,
+        feedDropV: run.feedBothEnds ? Math.max(startDropV, farDropV) : startDropV,
+        maxDropV: Math.max(...runDrops)
+      });
+    });
+
+    return results;
+  }
+
   function plannedRunPathDistance(inputState, controller, run) {
     const powerDistance = controllerPowerDistance(inputState, controller);
     const nearPath = powerDistance + runTapeDistance(controller, run);
@@ -2448,6 +2547,25 @@
       const controlCableLimitValueFt = controlCableLimitFt(controller.tape, controller.totalTapeLength, controlCableWireSize);
       const controlCableTableStatus = cableDistanceStatus(controlCableDistanceFt, controlCableLimitValueFt, controller.totalTapeLength > 0);
 
+      const seriesSolutionCache = new Map();
+      const seriesSolutionFor = (run) => {
+        const branchKey = seriesBranchKey(controller, run);
+        if (!seriesSolutionCache.has(branchKey)) {
+          const sourceDropV =
+            controllerWiringStyle(controller) === "series-parallel"
+              ? controllerDropV +
+                ohmsForWire(controller.wireSizeControllerToTapeSplit) *
+                  Math.max(0, number(controller.distanceControllerToTapeSplit)) *
+                  controller.totalTapeCurrent
+              : controllerDropV;
+          seriesSolutionCache.set(
+            branchKey,
+            solveSeriesBranch(controller, orderedSeriesBranch(controller, run), sourceDropV)
+          );
+        }
+        return seriesSolutionCache.get(branchKey).get(run.globalRunIndex) || null;
+      };
+
       const runResults = controller.runs.map((run) => {
         const hasTape = run.tapeLength > 0;
         const baseDropV = controlDropBeforeRun(controller, run, controllerDropV);
@@ -2470,7 +2588,14 @@
         let visibleRunFadePct = 0;
         let leadDropV = 0;
 
-        if (hasTape && run.feedBothEnds) {
+        const seriesSolution = hasTape && seriesLayout ? seriesSolutionFor(run) : null;
+
+        if (seriesSolution) {
+          leadDropV = seriesSolution.feedDropV;
+          fadeAtTapeStartPct = seriesSolution.feedDropV * controller.tape.droopPerVolt * 100;
+          fadeAtTapeEndPct = seriesSolution.maxDropV * controller.tape.droopPerVolt * 100;
+          visibleRunFadePct = Math.max(0, fadeAtTapeEndPct - fadeAtTapeStartPct);
+        } else if (hasTape && run.feedBothEnds) {
           const halfLength = run.tapeLength / 2;
           const halfCurrent = currentForTapeLength(halfLength, controller.tape);
           const nearSegmentCurrent = controlSegmentCurrent(controller, run);
@@ -5729,6 +5854,7 @@
   });
 
   const publicApi = {
+    version: APP_VERSION,
     evaluate,
     buildRecommendation,
     simpleExample,
@@ -5738,6 +5864,9 @@
   };
   window.TRACETool = publicApi;
   window.LutronInstallerTapeCheckV4 = publicApi;
+
+  const appVersionLabel = document.getElementById("appVersion");
+  if (appVersionLabel) appVersionLabel.textContent = `v${APP_VERSION}`;
 
   applyTheme(preferredTheme());
   setReviewTab("diagram");

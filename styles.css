@@ -4628,3 +4628,15 @@ button:focus-visible {
 .wizard-step.is-collapsed .step-collapsed-label {
   display: block;
 }
+
+/* Version label, top right of the header */
+.app-version {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
