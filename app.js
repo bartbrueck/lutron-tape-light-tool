@@ -24,7 +24,7 @@
   const WIRING_STYLES = ["parallel", "series", "series-parallel"];
   const PROJECT_FILE_TYPE = "lutron-tape-light-installer-check";
   const PROJECT_FILE_VERSION = 1;
-  const APP_VERSION = "2.2";
+  const APP_VERSION = "2.3";
   const GITHUB_ISSUE_URL = "https://github.com/bartbrueck/lutron-tape-light-tool/issues/new";
   const THEME_STORAGE_KEY = "trace-theme";
   const DISCLAIMER_STORAGE_KEY = "trace-disclaimer-accepted-v1";
@@ -1860,22 +1860,29 @@
     return sharedDistance + branchDistance;
   }
 
-  // Gauge used for the control-cable spec-table lookup. Each wire has its own
-  // gauge, so use the thinnest one on this controller (highest AWG number).
-  // That is the conservative row of the table.
-  function controllerControlWireSize(inputState, controller) {
-    const sizes = [];
-    (controller?.runs || []).forEach((run) => {
-      if (number(run.tapeLength) <= 0) return;
-      sizes.push(normalizeControlWireSize(run.wireSizeToTapeStart));
-      if (run.feedBothEnds) sizes.push(normalizeControlWireSize(run.farEndWireSize || run.wireSizeToTapeStart));
-    });
-    if (controller && controllerUsesTapeSplit(controller)) {
-      sizes.push(normalizeControlWireSize(controller.wireSizeControllerToTapeSplit));
+  // Gauge used for the control-cable spec-table reference. The table assumes
+  // one wire carrying the whole tape load, so it only fits the lead wire that
+  // leaves the controller: the first series lead, the shared split wire, or
+  // (parallel, one home run per tape) that run's own wire. Voltage drop on
+  // every other wire is handled by the loss math at each wire's own gauge.
+  function controllerControlWireSize(inputState, controller, run = null) {
+    const fallback = normalizeControlWireSize(inputState.controlWireSize ?? DEFAULT_CONTROL_WIRE_SIZE);
+    if (!controller) return fallback;
+    const style = controllerWiringStyle(controller);
+    if (style === "series") {
+      const leadRun = orderedSeriesGroups(controller)[0]?.runs?.[0];
+      return leadRun ? normalizeControlWireSize(leadRun.wireSizeToTapeStart) : fallback;
     }
-    if (sizes.length) return Math.max(...sizes);
-    return normalizeControlWireSize(inputState.controlWireSize ?? DEFAULT_CONTROL_WIRE_SIZE);
+    if (controllerUsesTapeSplit(controller)) {
+      return normalizeControlWireSize(controller.wireSizeControllerToTapeSplit);
+    }
+    if (run) return normalizeControlWireSize(run.wireSizeToTapeStart);
+    const sizes = (controller.runs || [])
+      .filter((item) => number(item.tapeLength) > 0)
+      .map((item) => normalizeControlWireSize(item.wireSizeToTapeStart));
+    return sizes.length ? Math.max(...sizes) : fallback;
   }
+
 
   function controllerPowerWireSize(inputState, controller) {
     if (inputState.powerMode !== "shared") return normalizePowerWireSize(controller.wireSizePowerToController);
@@ -2071,7 +2078,7 @@
       ? Math.max(runTapeDistance(controller, run), farEndControlDistance(controller, run))
       : runTapeDistance(controller, run);
     const powerWireSize = controllerPowerWireSize(inputState, controller);
-    const controlWireSize = controllerControlWireSize(inputState, controller);
+    const controlWireSize = controllerControlWireSize(inputState, controller, run);
     const powerSpecLimitFt = powerCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, powerWireSize);
     const controlSpecLimitFt = controlCableLimitFt(controller.tape, controller.totalTapeLength || run.tapeLength, controlWireSize);
     const goodTotalPathFt = fadePctPerFt > 0 ? GOOD_LIGHT_LOSS_PCT / fadePctPerFt : 0;
